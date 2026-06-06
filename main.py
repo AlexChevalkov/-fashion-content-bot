@@ -223,34 +223,59 @@ def create_buffer_draft(post_text, channel_id, image_url=None):
         safe_url = image_url.replace('"', '\\"')
         media_part = f'''assets: [{{ image: {{ url: "{safe_url}" }} }}],'''
 
-    mutation = f'''
-    mutation CreateDraftPost {{
-        createPost(input: {{
-            text: "{safe_text}",
-            channelId: "{channel_id}",
+    # Строим запрос через variables чтобы избежать проблем с экранированием
+    if image_url:
+        mutation = """
+    mutation CreateDraftPost($text: String!, $channelId: String!, $imageUrl: String!) {
+        createPost(input: {
+            text: $text,
+            channelId: $channelId,
             schedulingType: automatic,
             mode: addToQueue,
             saveToDraft: true,
-            instagramOptions: {{ type: post }},
-            {media_part}
-        }}) {{
-            ... on PostActionSuccess {{
-                post {{
+            assets: [{ image: { url: $imageUrl } }]
+        }) {
+            ... on PostActionSuccess {
+                post {
                     id
                     text
-                }}
-            }}
-            ... on MutationError {{
+                }
+            }
+            ... on MutationError {
                 message
-            }}
-        }}
-    }}
-    '''
+            }
+        }
+    }
+    """
+        variables = {"text": post_text, "channelId": channel_id, "imageUrl": image_url}
+    else:
+        mutation = """
+    mutation CreateDraftPost($text: String!, $channelId: String!) {
+        createPost(input: {
+            text: $text,
+            channelId: $channelId,
+            schedulingType: automatic,
+            mode: addToQueue,
+            saveToDraft: true
+        }) {
+            ... on PostActionSuccess {
+                post {
+                    id
+                    text
+                }
+            }
+            ... on MutationError {
+                message
+            }
+        }
+    }
+    """
+        variables = {"text": post_text, "channelId": channel_id}
 
     try:
         response = requests.post(
             url,
-            json={"query": mutation},
+            json={"query": mutation, "variables": variables},
             headers=headers
         )
         result = response.json()
