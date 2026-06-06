@@ -153,7 +153,7 @@ def get_buffer_channel_id():
     }
     query = """
     query {
-        organizations(input: {}) {
+        organizations {
             id
             name
             channels {
