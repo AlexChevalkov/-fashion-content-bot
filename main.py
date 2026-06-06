@@ -221,7 +221,7 @@ def create_buffer_draft(post_text, channel_id, image_url=None):
     media_part = ""
     if image_url:
         safe_url = image_url.replace('"', '\\"')
-        media_part = f'''assets: [{{ url: "{safe_url}", mediaType: image }}],'''
+        media_part = f'''assets: [{{ image: {{ url: "{safe_url}" }} }}],'''
 
     mutation = f'''
     mutation CreateDraftPost {{
