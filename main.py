@@ -4,12 +4,12 @@ import feedparser
 import anthropic
 import requests
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 # ─── CONFIG ───────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 BUFFER_ACCESS_TOKEN = os.environ["BUFFER_ACCESS_TOKEN"]
 
-# RSS источники
 RSS_FEEDS = [
     "https://www.vogue.com/feed/rss",
     "https://www.businessoffashion.com/feed",
@@ -18,16 +18,11 @@ RSS_FEEDS = [
     "https://www.buro247.me/rss.xml",
 ]
 
-# Расписание: воскресенье=0, понедельник=1 ... суббота=6
-PUBLISH_DAYS = [6, 2, 3, 4]  # вс=6, ср=2, чт=3, пт=4  # вс, ср, чт, пт
+PUBLISH_DAYS = [6, 2, 3, 4]  # вс=6, ср=2, чт=3, пт=4
 
-# Время публикации (МСК = UTC+3)
-PUBLISH_TIME_UTC = "06:30"  # 9:30 МСК
+MASTER_PROMPT = """Ты помогаешь вести Instagram-блог @sv_fashionacademy — профессиональный блог о моде и стиле для русскоязычной аудитории.
 
-# Мастер-промпт голоса Alex Chevalkov
-MASTER_PROMPT = """Ты помогаешь вести Instagram-блог @sv_fashionacademy — профессиональный блог о моде и стиле для русскоязычной аудитории. 
-
-Автор блога — Alex Chevalkov (Alex Chevalkov, ex-Valentin Yudashkin), профессионал высокой моды с 20-летним опытом, основатель Академии моды «Saint Valentine», автор учебного пособия для дизайнеров.
+Автор блога — Alex Chevalkov (ex-Valentin Yudashkin), профессионал высокой моды с 20-летним опытом, основатель Академии моды «Saint Valentine», автор учебного пособия для дизайнеров.
 
 СТИЛЬ ТЕКСТОВ:
 - Ироничный insider-тон — пишешь как человек из индустрии, а не наблюдатель снаружи
@@ -36,36 +31,74 @@ MASTER_PROMPT = """Ты помогаешь вести Instagram-блог @sv_fas
 - Чередуй экспертный анализ и живую эмоциональную реакцию
 - Можно использовать многоточия, КАПСЛОК для акцентов, эмодзи — умеренно
 
-ФОРМАТЫ:
-1. Новость + острое мнение эксперта
-2. Инсайт про индустрию (тренды, механики моды)  
-3. Провокационный вопрос аудитории
-4. Эмоциональная реакция на событие
-
-АУДИТОРИЯ: дизайнеры, студенты-дизайнеры, профессионалы индустрии, продвинутые любители моды. Русскоязычные.
-
 ДЛИНА: 80-150 слов. Коротко, ёмко, с характером. Без воды.
 
-ХЕШТЕГИ: добавь 5-7 релевантных хештегов в конце на русском и английском.
-Примеры: #мода #стиль #fashionblog #дизайн #неделямоды #fashiondesign #hautecouture"""
+ХЕШТЕГИ: добавь 5-7 релевантных хештегов в конце на русском и английском."""
+
+
+def extract_image_from_entry(entry):
+    """Извлекает URL изображения из RSS записи"""
+    # 1. Медиа контент (media:content)
+    if hasattr(entry, 'media_content') and entry.media_content:
+        for media in entry.media_content:
+            if media.get('type', '').startswith('image'):
+                return media.get('url')
+
+    # 2. Enclosures
+    if hasattr(entry, 'enclosures') and entry.enclosures:
+        for enc in entry.enclosures:
+            if 'image' in enc.get('type', ''):
+                return enc.get('url') or enc.get('href')
+
+    # 3. Media thumbnail
+    if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+        return entry.media_thumbnail[0].get('url')
+
+    # 4. Парсим HTML в summary
+    summary = entry.get('summary', '') or entry.get('content', [{}])[0].get('value', '')
+    if summary:
+        soup = BeautifulSoup(summary, 'html.parser')
+        img = soup.find('img')
+        if img and img.get('src'):
+            src = img['src']
+            if src.startswith('http') and any(ext in src.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                return src
+
+    # 5. Парсим HTML в content
+    if hasattr(entry, 'content') and entry.content:
+        for c in entry.content:
+            soup = BeautifulSoup(c.get('value', ''), 'html.parser')
+            img = soup.find('img')
+            if img and img.get('src'):
+                src = img['src']
+                if src.startswith('http'):
+                    return src
+
+    return None
 
 
 def fetch_news():
-    """Собирает новости из RSS источников"""
+    """Собирает новости из RSS источников с фото"""
     articles = []
     for url in RSS_FEEDS:
         try:
             feed = feedparser.parse(url)
             for entry in feed.entries[:3]:
+                image_url = extract_image_from_entry(entry)
                 articles.append({
                     "title": entry.get("title", ""),
                     "summary": entry.get("summary", "")[:500],
                     "link": entry.get("link", ""),
-                    "source": feed.feed.get("title", url)
+                    "source": feed.feed.get("title", url),
+                    "image_url": image_url
                 })
         except Exception as e:
             print(f"Ошибка RSS {url}: {e}")
-    return articles[:10]
+
+    # Приоритет статьям с фото
+    with_photo = [a for a in articles if a.get('image_url')]
+    without_photo = [a for a in articles if not a.get('image_url')]
+    return (with_photo + without_photo)[:10]
 
 
 def generate_post(articles):
@@ -73,7 +106,7 @@ def generate_post(articles):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     news_text = "\n\n".join([
-        f"ИСТОЧНИК: {a['source']}\nЗАГОЛОВОК: {a['title']}\nКРАТКО: {a['summary']}"
+        f"ИСТОЧНИК: {a['source']}\nЗАГОЛОВОК: {a['title']}\nКРАТКО: {a['summary']}\nФОТО: {'есть' if a.get('image_url') else 'нет'}"
         for a in articles[:5]
     ])
 
@@ -97,24 +130,22 @@ def generate_post(articles):
 
 
 def generate_story(post_text):
-    """Генерирует текст для сторис на основе поста"""
+    """Генерирует текст для сторис"""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=150,
         system=MASTER_PROMPT,
         messages=[{
             "role": "user",
-            "content": f"На основе этого поста напиши короткий тизер для Instagram Stories (максимум 2-3 предложения, интригующий, чтобы хотелось читать дальше):\n\n{post_text}"
+            "content": f"На основе этого поста напиши короткий тизер для Instagram Stories (максимум 2-3 предложения, интригующий):\n\n{post_text}"
         }]
     )
-
     return message.content[0].text
 
 
-def get_buffer_profile_id():
-    """Получает ID профиля Instagram в Buffer"""
+def get_buffer_channel_id():
+    """Получает ID Instagram канала в Buffer"""
     url = "https://api.buffer.com/graphql"
     headers = {
         "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
@@ -122,7 +153,9 @@ def get_buffer_profile_id():
     }
     query = """
     query {
-        organizations {
+        organizations(input: {}) {
+            id
+            name
             channels {
                 id
                 name
@@ -131,27 +164,41 @@ def get_buffer_profile_id():
         }
     }
     """
-    response = requests.post(url, json={"query": query}, headers=headers)
-    data = response.json()
-
     try:
-        for org in data["data"]["organizations"]:
-            for channel in org["channels"]:
-                if channel["service"] == "instagram":
+        response = requests.post(url, json={"query": query}, headers=headers)
+        data = response.json()
+        print(f"Buffer organizations response: {json.dumps(data, indent=2)[:500]}")
+
+        orgs = data.get("data", {}).get("organizations", [])
+        for org in orgs:
+            for channel in org.get("channels", []):
+                if channel.get("service") == "instagram":
+                    print(f"Найден Instagram канал: {channel['id']}")
                     return channel["id"]
     except Exception as e:
-        print(f"Ошибка получения профиля Buffer: {e}")
-        print(f"Ответ: {data}")
+        print(f"Ошибка получения канала Buffer: {e}")
     return None
 
 
-def schedule_post_buffer(post_text, channel_id):
-    """Отправляет пост в Buffer как черновик"""
+def create_buffer_draft(post_text, channel_id, image_url=None):
+    """Создаёт черновик в Buffer"""
     url = "https://api.buffer.com/graphql"
     headers = {
         "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
+
+    # Базовый input
+    input_data = {
+        "channelId": channel_id,
+        "content": {
+            "text": post_text
+        }
+    }
+
+    # Добавляем фото если есть
+    if image_url:
+        input_data["content"]["assets"] = [{"url": image_url}]
 
     mutation = """
     mutation CreateDraft($input: CreateDraftPostInput!) {
@@ -161,38 +208,44 @@ def schedule_post_buffer(post_text, channel_id):
                 text
                 status
             }
+            ... on CoreAPIError {
+                message
+                type
+            }
         }
     }
     """
 
-    variables = {
-        "input": {
-            "channelId": channel_id,
-            "content": {
-                "text": post_text
-            }
-        }
-    }
-
-    response = requests.post(
-        url,
-        json={"query": mutation, "variables": variables},
-        headers=headers
-    )
-
-    return response.json()
+    try:
+        response = requests.post(
+            url,
+            json={"query": mutation, "variables": {"input": input_data}},
+            headers=headers
+        )
+        result = response.json()
+        print(f"Buffer draft response: {json.dumps(result, indent=2)[:500]}")
+        return result
+    except Exception as e:
+        print(f"Ошибка создания черновика: {e}")
+        return None
 
 
-def save_results(post, story):
-    """Сохраняет результаты в файл для логов"""
+def should_run_today():
+    if os.environ.get("MANUAL_RUN") == "true":
+        return True
+    today = datetime.now().weekday()
+    return today in PUBLISH_DAYS
+
+
+def save_results(post, story, image_url=None):
     today = datetime.now().strftime("%Y-%m-%d")
     results = {
         "date": today,
         "post": post,
         "story": story,
+        "image_url": image_url,
         "generated_at": datetime.now().isoformat()
     }
-
     with open(f"generated_{today}.json", "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
@@ -200,21 +253,13 @@ def save_results(post, story):
     print(f"ПОСТ ДЛЯ INSTAGRAM ({today}):")
     print(f"{'='*50}")
     print(post)
+    if image_url:
+        print(f"\nФОТО: {image_url}")
     print(f"\n{'='*50}")
     print("ТЕКСТ ДЛЯ СТОРИС:")
     print(f"{'='*50}")
     print(story)
     print(f"{'='*50}\n")
-
-
-def should_run_today():
-    """Проверяет нужно ли публиковать сегодня"""
-    # Если запущен вручную (MANUAL_RUN=true) — всегда публикуем
-    if os.environ.get("MANUAL_RUN") == "true":
-        return True
-    today = datetime.now().weekday()
-    # weekday(): пн=0, вт=1, ср=2, чт=3, пт=4, сб=5, вс=6
-    return today in PUBLISH_DAYS
 
 
 def main():
@@ -227,8 +272,14 @@ def main():
     print("Собираю новости...")
     articles = fetch_news()
 
-    if not articles:
-        print("Новостей не найдено, генерирую инсайт...")
+    # Берём лучшую статью с фото для визуала
+    best_article = next((a for a in articles if a.get('image_url')), None)
+    image_url = best_article.get('image_url') if best_article else None
+
+    if image_url:
+        print(f"Найдено фото: {image_url}")
+    else:
+        print("Фото не найдено в RSS, пост будет без фото")
 
     print("Генерирую пост...")
     post = generate_post(articles)
@@ -236,18 +287,22 @@ def main():
     print("Генерирую текст для сторис...")
     story = generate_story(post)
 
-    print("Сохраняю результаты...")
-    save_results(post, story)
+    save_results(post, story, image_url)
 
-    print("Отправляю в Buffer...")
-    channel_id = get_buffer_profile_id()
+    print("Подключаюсь к Buffer...")
+    channel_id = get_buffer_channel_id()
 
     if channel_id:
-        result = schedule_post_buffer(post, channel_id)
-        print(f"Buffer ответ: {result}")
-        print("✅ Пост добавлен в Buffer как черновик!")
+        print("Создаю черновик в Buffer...")
+        result = create_buffer_draft(post, channel_id, image_url)
+        if result and "errors" not in result:
+            print("✅ Черновик создан в Buffer!")
+            if image_url:
+                print("✅ Фото прикреплено!")
+        else:
+            print("⚠️ Проблема с Buffer — пост сохранён локально")
     else:
-        print("⚠️ Не удалось найти Instagram канал в Buffer")
+        print("⚠️ Instagram канал не найден в Buffer")
         print("Пост сохранён локально в JSON файле")
 
     print("Готово!")
