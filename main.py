@@ -146,35 +146,61 @@ def generate_story(post_text):
 
 def get_buffer_channel_id():
     """Получает ID Instagram канала в Buffer"""
-    url = "https://api.buffer.com/graphql"
+    url = "https://api.buffer.com"
     headers = {
         "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
-    query = """
-    query {
-        organizations {
-            id
-            name
-            channels {
+
+    # Шаг 1: получаем организации через account
+    org_query = """
+    query GetOrganizations {
+        account {
+            organizations {
                 id
                 name
-                service
             }
         }
     }
     """
     try:
-        response = requests.post(url, json={"query": query}, headers=headers)
+        response = requests.post(url, json={"query": org_query}, headers=headers)
         data = response.json()
-        print(f"Buffer organizations response: {json.dumps(data, indent=2)[:500]}")
+        print(f"Buffer account response: {json.dumps(data, indent=2)[:300]}")
 
-        orgs = data.get("data", {}).get("organizations", [])
-        for org in orgs:
-            for channel in org.get("channels", []):
-                if channel.get("service") == "instagram":
-                    print(f"Найден Instagram канал: {channel['id']}")
-                    return channel["id"]
+        orgs = data.get("data", {}).get("account", {}).get("organizations", [])
+        if not orgs:
+            print("Организации не найдены")
+            return None
+
+        org_id = orgs[0]["id"]
+        print(f"Организация: {orgs[0]['name']} (ID: {org_id})")
+
+        # Шаг 2: получаем каналы для организации
+        channels_query = """
+        query GetChannels($orgId: String!) {
+            channels(input: { organizationId: $orgId }) {
+                id
+                name
+                service
+            }
+        }
+        """
+        response2 = requests.post(
+            url,
+            json={"query": channels_query, "variables": {"orgId": org_id}},
+            headers=headers
+        )
+        data2 = response2.json()
+        print(f"Buffer channels response: {json.dumps(data2, indent=2)[:300]}")
+
+        channels = data2.get("data", {}).get("channels", [])
+        for channel in channels:
+            if channel.get("service") == "instagram":
+                print(f"Найден Instagram канал: {channel['id']}")
+                return channel["id"]
+
+        print("Instagram канал не найден среди каналов")
     except Exception as e:
         print(f"Ошибка получения канала Buffer: {e}")
     return None
@@ -182,7 +208,7 @@ def get_buffer_channel_id():
 
 def create_buffer_draft(post_text, channel_id, image_url=None):
     """Создаёт черновик в Buffer"""
-    url = "https://api.buffer.com/graphql"
+    url = "https://api.buffer.com"
     headers = {
         "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
         "Content-Type": "application/json"
