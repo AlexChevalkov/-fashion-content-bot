@@ -1,0 +1,39 @@
+name: Fashion Content Bot
+
+on:
+  schedule:
+    # Запуск каждый день в 06:30 UTC (= 09:30 МСК)
+    # Скрипт сам проверяет нужно ли публиковать сегодня (вс/ср/чт/пт)
+    - cron: '30 6 * * *'
+  # Позволяет запустить вручную из GitHub
+  workflow_dispatch:
+
+jobs:
+  generate-and-post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout репозитория
+        uses: actions/checkout@v4
+
+      - name: Настройка Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt
+
+      - name: Запуск бота
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
+        run: python main.py
+
+      - name: Сохранение логов
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: generated-posts-${{ github.run_number }}
+          path: generated_*.json
+          retention-days: 30
