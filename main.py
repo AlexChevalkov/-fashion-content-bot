@@ -231,6 +231,7 @@ def create_buffer_draft(post_text, channel_id, image_url=None):
             schedulingType: automatic,
             mode: addToQueue,
             saveToDraft: true,
+            instagramOptions: {{ type: post }},
             {media_part}
         }}) {{
             ... on PostActionSuccess {{
