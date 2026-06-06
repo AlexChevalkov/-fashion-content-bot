@@ -176,19 +176,19 @@ def get_buffer_channel_id():
         org_id = orgs[0]["id"]
         print(f"Организация: {orgs[0]['name']} (ID: {org_id})")
 
-        # Шаг 2: получаем каналы для организации
+        # Шаг 2: получаем каналы для организации (inline, без переменных)
         channels_query = """
-        query GetChannels($orgId: String!) {
-            channels(input: { organizationId: $orgId }) {
+        query GetChannels {
+            channels(input: { organizationId: "%s" }) {
                 id
                 name
                 service
             }
         }
-        """
+        """ % org_id
         response2 = requests.post(
             url,
-            json={"query": channels_query, "variables": {"orgId": org_id}},
+            json={"query": channels_query},
             headers=headers
         )
         data2 = response2.json()
