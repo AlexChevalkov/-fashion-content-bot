@@ -241,6 +241,12 @@ def create_buffer_draft(post_text, channel_id, image_url=None):
             schedulingType: automatic,
             mode: addToQueue,
             saveToDraft: true,
+            metadata: {{
+                instagram: {{
+                    type: post,
+                    shouldShareToFeed: true
+                }}
+            }},
             {assets_part}
         }}) {{
             ... on PostActionSuccess {{
