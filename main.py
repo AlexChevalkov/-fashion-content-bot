@@ -11,6 +11,7 @@ ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 BUFFER_ACCESS_TOKEN = os.environ["BUFFER_ACCESS_TOKEN"]
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHANNEL = "@yudashkin_academy"
+TELEGRAM_ADMIN_ID = 432899605  # ID для премодерации
 
 RSS_FEEDS = [
     # Международные
@@ -286,15 +287,9 @@ def create_buffer_draft(post_text, channel_id, image_url=None):
         return None
 
 
-def post_to_telegram(post_text, image_url=None):
-    """Публикует пост в Telegram канал"""
-    if not TELEGRAM_BOT_TOKEN:
-        print("TELEGRAM_BOT_TOKEN не найден, пропускаю")
-        return None
-
-    # Убираем markdown символы которые могут сломать отправку
-    clean_text = post_text.replace("**", "").replace("__", "").replace("`", "")
-    # Обрезаем до лимита Telegram (caption max 1024, message max 4096)
+def send_telegram(chat_id, text, image_url=None):
+    """Отправляет сообщение в Telegram"""
+    clean_text = text.replace("**", "").replace("__", "").replace("`", "")
     max_len = 1024 if image_url else 4096
     if len(clean_text) > max_len:
         clean_text = clean_text[:max_len-3] + "..."
@@ -302,40 +297,53 @@ def post_to_telegram(post_text, image_url=None):
     try:
         if image_url:
             api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-            payload = {
-                "chat_id": TELEGRAM_CHANNEL,
-                "photo": image_url,
-                "caption": clean_text
-            }
+            payload = {"chat_id": chat_id, "photo": image_url, "caption": clean_text}
         else:
             api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            payload = {
-                "chat_id": TELEGRAM_CHANNEL,
-                "text": clean_text
-            }
+            payload = {"chat_id": chat_id, "text": clean_text}
 
         response = requests.post(api_url, json=payload, timeout=30)
         result = response.json()
 
-        if result.get("ok"):
-            print("✅ Пост опубликован в Telegram!")
-        else:
-            print(f"⚠️ Ошибка Telegram: {result.get('description')}")
-            # Если ошибка с фото — пробуем без него
-            if image_url and not result.get("ok"):
-                print("Пробую отправить без фото...")
-                api_url2 = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                payload2 = {"chat_id": TELEGRAM_CHANNEL, "text": clean_text}
-                response2 = requests.post(api_url2, json=payload2, timeout=30)
-                result2 = response2.json()
-                if result2.get("ok"):
-                    print("✅ Пост опубликован в Telegram (без фото)!")
-                    return result2
+        if not result.get("ok") and image_url:
+            # Фото не подошло — отправляем текст
+            api_url2 = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload2 = {"chat_id": chat_id, "text": clean_text}
+            response2 = requests.post(api_url2, json=payload2, timeout=30)
+            return response2.json()
 
         return result
     except Exception as e:
-        print(f"Ошибка публикации в Telegram: {e}")
+        print(f"Ошибка Telegram: {e}")
         return None
+
+
+def post_to_telegram(post_text, image_url=None):
+    """Отправляет превью тебе в личку для модерации"""
+    if not TELEGRAM_BOT_TOKEN:
+        print("TELEGRAM_BOT_TOKEN не найден, пропускаю")
+        return None
+
+    # Формируем превью для модерации
+    preview_header = "🔔 НОВЫЙ ПОСТ ДЛЯ КАНАЛА @yudashkin_academy
+
+Просмотри и перешли в канал если всё ок 👇
+
+"
+    preview_text = preview_header + post_text
+
+    result = send_telegram(TELEGRAM_ADMIN_ID, preview_text, image_url)
+
+    if result and result.get("ok"):
+        print("✅ Превью отправлено тебе в Telegram для проверки!")
+        # Отправляем подсказку
+        hint = "☝️ Если пост подходит — нажми Forward и отправь в @yudashkin_academy
+Если нет — просто удали это сообщение."
+        send_telegram(TELEGRAM_ADMIN_ID, hint)
+    else:
+        print(f"⚠️ Ошибка отправки превью: {result}")
+
+    return result
 
 
 def should_run_today():
