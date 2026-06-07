@@ -31,9 +31,9 @@ PUBLISH_DAYS = list(range(7))  # все дни
 # Публикуем каждый день кроме субботы (5)
 PUBLISH_DAYS = [0, 1, 2, 3, 4, 6]  # все дни кроме субботы
 
-MASTER_PROMPT = """Ты помогаешь вести Instagram-блог @sv_fashionacademy — профессиональный блог о моде, стиле, светской жизни, связаанной с модой, о модных показах, событиях, вечеринках, красных дорожках для русскоязычной аудитории.
+MASTER_PROMPT = """Ты помогаешь вести Instagram-блог @sv_fashionacademy — профессиональный блог о моде и стиле для русскоязычной аудитории.
 
-Автор блога — Alex Chevalkov (ex-Valentin Yudashkin art ditrctor), профессионал высокой моды с 20-летним опытом, основатель Академии моды «Saint Valentine», автор учебного пособия для дизайнеров, фэшн критик и блоггер.
+Автор блога — Alex Chevalkov (ex-Valentin Yudashkin), профессионал высокой моды с 20-летним опытом, основатель Академии моды «Saint Valentine», автор учебного пособия для дизайнеров.
 
 СТИЛЬ ТЕКСТОВ:
 - Ироничный insider-тон — пишешь как человек из индустрии, а не наблюдатель снаружи
@@ -42,7 +42,7 @@ MASTER_PROMPT = """Ты помогаешь вести Instagram-блог @sv_fas
 - Чередуй экспертный анализ и живую эмоциональную реакцию
 - Можно использовать многоточия, КАПСЛОК для акцентов, эмодзи — умеренно
 
-ДЛИНА: 80-160 слов. Коротко, ёмко, с характером. Без воды.
+ДЛИНА: 80-150 слов. Коротко, ёмко, с характером. Без воды.
 
 ХЕШТЕГИ: добавь 5-7 релевантных хештегов в конце на русском и английском."""
 
@@ -294,6 +294,67 @@ def should_run_today():
     return today in PUBLISH_DAYS
 
 
+def create_story_reminder(story_text, channel_id):
+    """Создаёт напоминание для сторис в Buffer на 22:00 МСК"""
+    url = "https://api.buffer.com"
+    headers = {
+        "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    import json as json_module
+    safe_text = json_module.dumps(story_text)[1:-1]
+
+    # 22:00 МСК = 19:00 UTC
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    reminder_time = now.replace(hour=19, minute=0, second=0, microsecond=0)
+    # Если уже позже 19:00 UTC — ставим на следующий день
+    if now.hour >= 19:
+        from datetime import timedelta
+        reminder_time += timedelta(days=1)
+
+    due_at = reminder_time.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    mutation = f"""
+    mutation {{
+        createPost(input: {{
+            text: "{safe_text}",
+            channelId: "{channel_id}",
+            schedulingType: notification,
+            mode: customScheduled,
+            dueAt: "{due_at}",
+            saveToDraft: false,
+            metadata: {{
+                instagram: {{
+                    type: story,
+                    shouldShareToFeed: false
+                }}
+            }}
+        }}) {{
+            ... on PostActionSuccess {{
+                post {{
+                    id
+                    text
+                }}
+            }}
+            ... on MutationError {{
+                message
+            }}
+        }}
+    }}
+    """
+
+    try:
+        response = requests.post(url, json={"query": mutation}, headers=headers)
+        result = response.json()
+        print(f"Story reminder response: {json.dumps(result, indent=2)[:300]}")
+        return result
+    except Exception as e:
+        print(f"Ошибка создания напоминания для сторис: {e}")
+        return None
+
+
 def save_results(post, story, image_url=None):
     today = datetime.now().strftime("%Y-%m-%d")
     results = {
@@ -394,6 +455,15 @@ def main():
     else:
         print("⚠️ Instagram канал не найден в Buffer")
         print("Пост сохранён локально в JSON файле")
+
+    # Отправляем напоминание для сторис на 22:00 МСК
+    if channel_id:
+        print("Создаю напоминание для сторис на 22:00 МСК...")
+        story_result = create_story_reminder(story, channel_id)
+        if story_result and "errors" not in story_result:
+            print("✅ Напоминание для сторис создано в Buffer!")
+        else:
+            print("⚠️ Не удалось создать напоминание для сторис")
 
     print("Готово!")
 
