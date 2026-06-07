@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 # ─── CONFIG ───────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 BUFFER_ACCESS_TOKEN = os.environ["BUFFER_ACCESS_TOKEN"]
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHANNEL = "@yudashkin_academy"
 
 RSS_FEEDS = [
     # Международные
@@ -26,9 +28,6 @@ RSS_FEEDS = [
     "https://www.tatler.ru/rss",
 ]
 
-PUBLISH_DAYS = list(range(7))  # все дни
-
-# Публикуем каждый день кроме субботы (5)
 PUBLISH_DAYS = [0, 1, 2, 3, 4, 6]  # все дни кроме субботы
 
 MASTER_PROMPT = """Ты помогаешь вести Instagram-блог @sv_fashionacademy — профессиональный блог о моде и стиле для русскоязычной аудитории.
