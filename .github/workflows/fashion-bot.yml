@@ -2,13 +2,9 @@ name: Fashion Content Bot
 
 on:
   schedule:
-    - cron: '30 6 * * *'  # 09:30 МСК каждый день
+    - cron: '30 6 * * 0,1,2,3,4,6'   # 09:30 МСК (UTC+3) — все дни кроме субботы
+    - cron: '30 16 * * 0,1,2,3,4,6'  # 19:30 МСК (UTC+3) — все дни кроме субботы
   workflow_dispatch:
-    inputs:
-      force_run:
-        description: 'Запустить принудительно (игнорировать расписание)'
-        required: false
-        default: 'true'
 
 jobs:
   generate-and-post:
