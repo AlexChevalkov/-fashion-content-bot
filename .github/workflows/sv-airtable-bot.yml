@@ -1,0 +1,27 @@
+name: SV Airtable Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sv-airtable-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install anthropic feedparser requests beautifulsoup4
+
+      - name: Run SV Airtable Bot
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AIRTABLE_WEBHOOK_URL: ${{ secrets.AIRTABLE_WEBHOOK_URL }}
+        run: python sv_airtable_bot.py
