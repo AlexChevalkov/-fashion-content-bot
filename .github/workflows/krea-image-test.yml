@@ -1,0 +1,32 @@
+name: Krea Image Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  krea-image-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Generate Krea Test Image
+        env:
+          KREA_API_KEY: ${{ secrets.KREA_API_KEY }}
+        run: python krea_image_test.py
+
+      - name: Upload generated image
+        uses: actions/upload-artifact@v4
+        with:
+          name: krea-cover-test
+          path: outputs/krea_cover_test.png
