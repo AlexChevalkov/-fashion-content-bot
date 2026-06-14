@@ -1,0 +1,34 @@
+name: Krea Render Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  krea-render-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Render Krea Cover
+        env:
+          KREA_API_KEY: ${{ secrets.KREA_API_KEY }}
+          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+        run: python krea_render_bot.py
+
+      - name: Upload generated cover
+        uses: actions/upload-artifact@v4
+        with:
+          name: krea-visual-job-cover
+          path: outputs/krea_visual_job_cover.png
