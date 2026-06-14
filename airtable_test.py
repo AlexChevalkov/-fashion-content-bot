@@ -2,7 +2,7 @@ import os
 import json
 import re
 from datetime import datetime, timezone
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, urljoin
 
 import feedparser
 import requests
@@ -21,6 +21,7 @@ MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 
 RSS_FEEDS = [
+    # Global / mainstream: нужны, но не должны доминировать
     "https://www.vogue.com/feed/rss",
     "https://www.businessoffashion.com/feed",
     "https://www.wwd.com/feed/",
@@ -32,8 +33,51 @@ RSS_FEEDS = [
     "https://www.showstudio.com/rss.xml",
     "https://www.buro247.me/rss.xml",
     "https://theblueprint.ru/rss",
-    "https://fashionjackson.com,
-    "https://www.jessicawang.com,
+
+    # Regional / niche feeds: могут не все работать, но feedparser их просто пропустит
+    "https://jingdaily.com/feed/",
+    "https://www.fashionsnap.com/feed/",
+    "https://www.voguearabia.com/feed/rss",
+    "https://www.vogue.in/feed/rss",
+]
+SOURCE_PAGES = [
+    # China / Asia luxury
+    {"name": "Jing Daily", "url": "https://jingdaily.com/"},
+    {"name": "Jing Daily Fashion", "url": "https://jingdaily.com/fashion"},
+    {"name": "Jing Daily Retail", "url": "https://jingdaily.com/retail"},
+    {"name": "Jing Daily Hard Luxury", "url": "https://jingdaily.com/hard-luxury"},
+    {"name": "Dao Insights Luxury", "url": "https://daoinsights.com/tag/industries-luxury/"},
+
+    # Japan
+    {"name": "FASHIONSNAP Japan", "url": "https://www.fashionsnap.com/"},
+    {"name": "Fashion Press Japan", "url": "https://www.fashion-press.net/"},
+    {"name": "The Fashion Post Japan", "url": "https://fashionpost.jp/"},
+
+    # Middle East / UAE
+    {"name": "Vogue Arabia", "url": "https://www.voguearabia.com/fashion/"},
+    {"name": "Arabian Business Fashion", "url": "https://www.arabianbusiness.com/t-magazine/fashion"},
+    {"name": "FashionNetwork UAE", "url": "https://ae.fashionnetwork.com/"},
+
+    # India
+    {"name": "Vogue India Fashion", "url": "https://www.vogue.in/fashion"},
+    {"name": "Elle India Fashion", "url": "https://elle.in/fashion"},
+    {"name": "FashionNetwork India", "url": "https://in.fashionnetwork.com/"},
+
+    # USA / Americas
+    {"name": "FashionNetwork USA", "url": "https://us.fashionnetwork.com/"},
+    {"name": "Fashionista", "url": "https://fashionista.com/"},
+    {"name": "CFDA News", "url": "https://cfda.com/news"},
+
+    # Latin America / Brazil / Mexico
+    {"name": "FashionNetwork Brazil", "url": "https://br.fashionnetwork.com/"},
+    {"name": "FashionNetwork Mexico", "url": "https://mx.fashionnetwork.com/"},
+    {"name": "FashionNetwork Latin America", "url": "https://pe.fashionnetwork.com/"},
+
+    # Global business / culture
+    {"name": "FashionNetwork Worldwide", "url": "https://ww.fashionnetwork.com/"},
+    {"name": "Vogue Business", "url": "https://www.voguebusiness.com/"},
+    {"name": "The Fashion Law", "url": "https://www.thefashionlaw.com/"},
+    {"name": "SHOWstudio", "url": "https://www.showstudio.com/"},
 ]
 
 
@@ -80,6 +124,27 @@ MAINSTREAM_DOMAINS = [
     "highsnobiety.com",
 ]
 
+
+REGIONAL_DOMAINS = [
+    "jingdaily.com",
+    "daoinsights.com",
+    "fashionsnap.com",
+    "fashion-press.net",
+    "fashionpost.jp",
+    "voguearabia.com",
+    "arabianbusiness.com",
+    "ae.fashionnetwork.com",
+    "in.fashionnetwork.com",
+    "vogue.in",
+    "elle.in",
+    "us.fashionnetwork.com",
+    "br.fashionnetwork.com",
+    "mx.fashionnetwork.com",
+    "pe.fashionnetwork.com",
+    "fashionista.com",
+    "cfda.com",
+]
+
 CONTEXT_DOMAINS = [
     "thefashionlaw.com",
     "showstudio.com",
@@ -88,6 +153,7 @@ CONTEXT_DOMAINS = [
     "palaisgalliera.paris.fr",
     "kering.com",
     "lvmh.com",
+    "voguebusiness.com",
 ]
 
 
