@@ -40,17 +40,27 @@ def normalize_title(title: str) -> str:
 def extract_json(text: str) -> dict:
     text = text.strip()
 
+    # Убираем markdown-обёртку ```json ... ```
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{.*\}", text, re.DOTALL)
+    start = text.find("{")
+    end = text.rfind("}")
 
-    if not match:
-        raise ValueError(f"No JSON object found in Claude response:\n{text}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError(
+            "No complete JSON object found. Claude response was probably truncated.\n"
+            f"Response preview:\n{text[:2000]}"
+        )
 
-    return json.loads(match.group(0))
+    json_text = text[start:end + 1]
+    return json.loads(json_text)
 
 
 def get_table_field_names(table_name: str) -> set[str]:
