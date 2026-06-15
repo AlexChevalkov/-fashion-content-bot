@@ -974,8 +974,21 @@ def build_reel_keyframe_prompts(fields: Dict[str, Any]) -> list[Dict[str, str]]:
     base_style = f"""
 SV Fashion Media reel keyframe.
 
-Vertical 9:16 composition.
-Quiet luxury. Editorial intelligence. Negative space.
+Create ONE SINGLE vertical 9:16 image.
+This must be one continuous photographic frame, not a collage.
+No storyboard.
+No contact sheet.
+No split screen.
+No multiple panels.
+No multiple frames inside the image.
+No grid layout.
+No four-scene composition.
+No horizontal strips.
+No before-after layout.
+
+Quiet luxury.
+Editorial intelligence.
+Negative space.
 Cold light, matte surfaces, controlled shadows.
 The image must feel like a deliberate fashion editorial symbol, not stock photography.
 No text inside the image.
@@ -1016,12 +1029,17 @@ Existing Krea Prompt Pack:
 {base_style}
 
 KEYFRAME 1 — START FRAME:
-Create the opening frame of the reel.
-A symbolic fashion object in large empty space.
-The image should immediately express distance, silence, desire and control.
-Strong negative space for the first on-screen phrase.
+One single vertical fashion editorial photograph.
+A symbolic fashion object placed in a large empty space.
+The object should feel distant, desirable, controlled.
+Minimal composition.
+One camera angle only.
+One scene only.
+No collage.
+No panels.
+No sequence.
 Premium editorial still life.
-Restrained, sharp, intelligent.
+Strong negative space for the first on-screen phrase.
 """.strip(),
         },
         {
@@ -1030,12 +1048,16 @@ Restrained, sharp, intelligent.
 {base_style}
 
 KEYFRAME 2 — MIDDLE FRAME:
-Create the middle frame of the reel.
-Develop the idea visually.
-Show the tension between accessibility and distance without literal explanation.
-Use object placement, material, shadow, scale and framing.
-The composition should feel slightly more tense than the first frame.
-Still premium, restrained and editorial.
+One single vertical fashion editorial photograph.
+A close but still spacious composition.
+Use material, surface, shadow, texture and object placement to show tension.
+The image should feel slightly more intimate than the first frame, but still restrained.
+One object or one object detail only.
+One scene only.
+No collage.
+No panels.
+No sequence.
+No multiple images inside the frame.
 """.strip(),
         },
         {
@@ -1044,12 +1066,16 @@ Still premium, restrained and editorial.
 {base_style}
 
 KEYFRAME 3 — FINAL FRAME:
-Create the final frame of the reel.
-The frame should feel like a conclusion.
-Quiet, restrained, premium, almost silent.
-One object or symbolic arrangement.
+One single vertical fashion editorial photograph.
+The frame should feel like a quiet conclusion.
+A single object or symbolic arrangement on stone, paper, linen or plaster.
 More empty space than visual information.
-A sense of editorial finality.
+Editorial finality.
+One scene only.
+No collage.
+No panels.
+No storyboard.
+No multiple images inside the frame.
 """.strip(),
         },
     ]
