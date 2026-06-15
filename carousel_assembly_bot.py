@@ -412,6 +412,43 @@ Generated at: {now}
 
     if response.status_code not in [200, 201, 202]:
         raise RuntimeError("Could not update Visual Job")
+    def extract_image_urls(output_links: str) -> dict[int, str]:
+    """
+    Из поля Output Links вытаскивает ссылки на изображения.
+    Возвращает словарь вида:
+    {
+        1: "cover_url",
+        2: "slide_2_url",
+        3: "slide_3_url",
+        4: "slide_4_url",
+    }
+    """
+
+    result = {}
+
+    if not output_links:
+        return result
+
+    # Cover image
+    cover_match = re.search(
+        r"Krea cover image generated:\s*(https?://[^\s|]+)",
+        output_links,
+        re.IGNORECASE,
+    )
+    if cover_match:
+        result[1] = cover_match.group(1)
+
+    # Slide 2, Slide 3, Slide 4...
+    slide_matches = re.findall(
+        r"Slide\s+(\d+):\s*(https?://[^\s|]+)",
+        output_links,
+        re.IGNORECASE,
+    )
+
+    for slide_num, url in slide_matches:
+        result[int(slide_num)] = url
+
+    return result    
 
 
 def main() -> None:
