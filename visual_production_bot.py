@@ -35,11 +35,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Krea endpoints
 # Если у тебя в текущем тестовом коде другие endpoint'ы — просто замени значения в secrets/env.
-KREA_CREATE_URL = os.environ.get("KREA_CREATE_URL", "https://api.krea.ai/v1/images")
-KREA_JOB_URL_TEMPLATE = os.environ.get("KREA_JOB_URL_TEMPLATE", "https://api.krea.ai/v1/images/{job_id}")
-KREA_MODEL = os.environ.get("KREA_MODEL", "k2")
-KREA_ASPECT_RATIO = os.environ.get("KREA_ASPECT_RATIO", "4:5")
-
+KREA_API_BASE = "https://api.krea.ai"
+KREA_ASPECT_RATIO = "4:5"
 # Typography / rendering
 CANVAS_W = 1080
 CANVAS_H = 1350
@@ -441,59 +438,72 @@ def krea_headers() -> Dict[str, str]:
 
 
 def create_krea_image_job(prompt: str, aspect_ratio: str = KREA_ASPECT_RATIO) -> str:
+    url = f"{KREA_API_BASE}/generate/image/krea/krea-2/medium"
+
     payload = {
-        "model": KREA_MODEL,
-        "prompt": prompt,
+        "prompt": prompt[:4000],
         "aspect_ratio": aspect_ratio,
-        "num_images": 1,
+        "resolution": "1K",
+        "creativity": "low",
     }
 
     response = requests.post(
-        KREA_CREATE_URL,
+        url,
         headers=krea_headers(),
         json=payload,
         timeout=60,
     )
 
+    print("Create Krea job URL:", url)
     print("Create Krea job status:", response.status_code)
     print("Create Krea job preview:", shorten(response.text, 1200))
+
     response.raise_for_status()
 
     data = response.json()
     job_id = data.get("job_id")
+
     if not job_id:
         raise RuntimeError(f"Krea did not return job_id: {data}")
 
     return job_id
 
 
-def poll_krea_job(job_id: str, max_wait_seconds: int = 240) -> str:
-    job_url = KREA_JOB_URL_TEMPLATE.format(job_id=job_id)
+def poll_krea_job(job_id: str, max_wait_seconds: int = 360) -> str:
+    url = f"{KREA_API_BASE}/jobs/{job_id}"
     started = time.time()
 
     while time.time() - started < max_wait_seconds:
-        response = requests.get(job_url, headers=krea_headers(), timeout=30)
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {KREA_API_KEY}"},
+            timeout=60,
+        )
+
+        print("Poll Krea URL:", url)
         print("Poll Krea status:", response.status_code)
         print("Poll Krea preview:", shorten(response.text, 1200))
+
         response.raise_for_status()
 
         data = response.json()
         status = data.get("status")
 
         if status == "completed":
-            result = data.get("result", {})
-            urls = result.get("urls", [])
+            result = data.get("result") or {}
+            urls = result.get("urls") or []
+
             if urls:
                 return urls[0]
+
             raise RuntimeError(f"Krea job completed but no image URL found: {data}")
 
-        if status in {"failed", "cancelled"}:
+        if status in {"failed", "cancelled", "canceled"}:
             raise RuntimeError(f"Krea job failed: {data}")
 
-        time.sleep(4)
+        time.sleep(5)
 
     raise TimeoutError(f"Krea job timed out: {job_id}")
-
 
 def download_image(url: str, destination: Path) -> None:
     response = requests.get(url, timeout=60)
