@@ -63,16 +63,70 @@ def fetch_job() -> dict | None:
     return records[0]
 
 
-def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-    candidates = []
+STYLE_CONFIG = {
+    "colors": {
+        "cream": (238, 234, 224, 255),
+        "muted": (196, 191, 181, 255),
+        "soft_muted": (170, 166, 158, 255),
+        "shadow": (0, 0, 0, 95),
+    },
+    "layout": {
+        "margin_x": 92,
+        "header_y": 78,
+        "rule_y": 132,
+        "rule_width": 96,
+        "footer_y": 1268,
+    },
+    "cover": {
+        "x": 92,
+        "y": 520,
+        "width": 760,
+        "font_size": 56,
+        "min_font_size": 42,
+        "line_height": 1.12,
+        "max_lines": 4,
+        "bold": False,
+    },
+    "body": {
+        "x": 92,
+        "y": 835,
+        "width": 780,
+        "font_size": 40,
+        "min_font_size": 32,
+        "line_height": 1.16,
+        "max_lines": 5,
+        "bold": False,
+    },
+    "small": {
+        "header_size": 24,
+        "number_size": 22,
+        "footer_size": 22,
+        "tracking": 3,
+    },
+    "overlay": {
+        "global_dark_alpha": 24,
+        "bottom_gradient_start": 0.62,
+        "bottom_gradient_max_alpha": 135,
+    },
+}
 
+
+def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    """
+    Пытаемся взять более нейтральный sans.
+    Если Liberation нет на runner, fallback на DejaVu.
+    """
     if bold:
-        candidates += [
+        candidates = [
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
         ]
     else:
-        candidates += [
+        candidates = [
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
         ]
@@ -96,23 +150,41 @@ def download_image(url: str) -> Image.Image:
 
 
 def fit_image(img: Image.Image) -> Image.Image:
-    return ImageOps.fit(img, (W, H), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+    return ImageOps.fit(
+        img,
+        (W, H),
+        method=Image.Resampling.LANCZOS,
+        centering=(0.5, 0.5),
+    )
 
 
 def add_overlays(img: Image.Image) -> Image.Image:
     base = img.convert("RGBA")
 
-    # лёгкое затемнение всего кадра
-    veil = Image.new("RGBA", (W, H), (0, 0, 0, 55))
+    overlay_cfg = STYLE_CONFIG["overlay"]
+
+    # Очень лёгкое затемнение всего кадра.
+    # Было грубее; теперь оставляем изображению больше воздуха.
+    veil = Image.new(
+        "RGBA",
+        (W, H),
+        (0, 0, 0, overlay_cfg["global_dark_alpha"]),
+    )
     base = Image.alpha_composite(base, veil)
 
-    # нижний градиент для текста
+    # Нижний градиент теперь начинается ниже.
+    # Это меньше похоже на стандартный social-media затемнитель.
     gradient = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     pix = gradient.load()
 
+    start_y = int(H * overlay_cfg["bottom_gradient_start"])
+    max_alpha = overlay_cfg["bottom_gradient_max_alpha"]
+
     for y in range(H):
-        if y > int(H * 0.48):
-            alpha = int(min(170, (y - H * 0.48) / (H * 0.52) * 170))
+        if y > start_y:
+            ratio = (y - start_y) / max(1, H - start_y)
+            alpha = int(min(max_alpha, ratio * max_alpha))
+
             for x in range(W):
                 pix[x, y] = (0, 0, 0, alpha)
 
@@ -121,7 +193,12 @@ def add_overlays(img: Image.Image) -> Image.Image:
     return base
 
 
-def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
+def wrap_text(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    max_width: int,
+) -> list[str]:
     words = text.split()
     lines = []
     current = ""
@@ -144,133 +221,159 @@ def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont
     return lines
 
 
-def parse_slide_copy(slide_copy: str) -> dict[int, str]:
-    if not slide_copy:
-        return {}
+def draw_tracking_text(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int],
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int, int],
+    tracking: int = 2,
+) -> None:
+    x, y = xy
 
-    pattern = r"(?:Слайд|Slide)\s*(\d+)\s*[:：]\s*(.*?)(?=(?:\s*(?:Слайд|Slide)\s*\d+\s*[:：])|$)"
-    matches = re.findall(pattern, slide_copy, flags=re.IGNORECASE | re.DOTALL)
-
-    result = {}
-
-    for num, text in matches:
-        clean = re.sub(r"\s+", " ", text).strip()
-        clean = clean.strip(" .")
-        clean = clean.strip("«»\"“”'")
-        result[int(num)] = clean
-
-    return result
-
-
-def extract_image_urls(output_links: str) -> dict[int, str]:
-    """
-    Возвращает:
-    1 -> cover url
-    2 -> slide 2 url
-    3 -> slide 3 url
-    и т.д.
-    """
-    urls_by_slide = {}
-
-    cover_match = re.search(
-        r"Krea cover image generated:\s*(https?://[^\s]+)",
-        output_links,
-        flags=re.IGNORECASE,
-    )
-
-    if cover_match:
-        urls_by_slide[1] = cover_match.group(1).strip()
-
-    for num, url in re.findall(
-        r"Slide\s+(\d+):\s*(https?://[^\s|]+)",
-        output_links,
-        flags=re.IGNORECASE,
-    ):
-        urls_by_slide[int(num)] = url.strip()
-
-    if not urls_by_slide:
-        all_urls = re.findall(r"https?://[^\s|]+", output_links)
-        for index, url in enumerate(all_urls[:MAX_SLIDES], start=1):
-            urls_by_slide[index] = url.strip()
-
-    return urls_by_slide
+    for char in text:
+        draw.text((x, y), char, font=font, fill=fill)
+        bbox = draw.textbbox((0, 0), char, font=font)
+        char_width = bbox[2] - bbox[0]
+        x += char_width + tracking
 
 
-def draw_slide(img: Image.Image, slide_number: int, text: str, total_slides: int) -> Image.Image:
+def draw_text_with_shadow(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int],
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int, int],
+) -> None:
+    x, y = xy
+    shadow = STYLE_CONFIG["colors"]["shadow"]
+
+    # Мягкая техническая тень вместо дешёвой обводки stroke.
+    draw.text((x + 2, y + 2), text, font=font, fill=shadow)
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def normalize_display_text(text: str) -> str:
+    text = text or ""
+    text = re.sub(r"\s+", " ", text).strip()
+    text = text.strip("«»\"“”'")
+
+    # Убираем слишком длинные служебные подписи из одного слайда.
+    text = text.replace(" / @sv_fashionacademy", "")
+    text = text.replace("@sv_fashionacademy", "")
+
+    return text.strip()
+
+
+def draw_main_text_block(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    cfg: dict,
+    color: tuple[int, int, int, int],
+) -> None:
+    font_size = cfg["font_size"]
+    min_size = cfg["min_font_size"]
+    is_bold = cfg.get("bold", False)
+
+    text = normalize_display_text(text)
+
+    font = load_font(font_size, bold=is_bold)
+    lines = wrap_text(draw, text, font, cfg["width"])
+
+    while len(lines) > cfg["max_lines"] and font_size > min_size:
+        font_size -= 2
+        font = load_font(font_size, bold=is_bold)
+        lines = wrap_text(draw, text, font, cfg["width"])
+
+    # Если всё ещё слишком много строк — режем.
+    # Это лучше, чем убить композицию.
+    lines = lines[: cfg["max_lines"]]
+
+    line_height = int(font_size * cfg["line_height"])
+
+    for i, line in enumerate(lines):
+        draw_text_with_shadow(
+            draw,
+            (cfg["x"], cfg["y"] + i * line_height),
+            line,
+            font,
+            color,
+        )
+
+
+def draw_slide(
+    img: Image.Image,
+    slide_number: int,
+    text: str,
+    total_slides: int,
+) -> Image.Image:
     canvas = add_overlays(fit_image(img))
     draw = ImageDraw.Draw(canvas)
 
-    cream = (244, 240, 230, 255)
-    muted = (210, 205, 194, 255)
+    colors = STYLE_CONFIG["colors"]
+    layout = STYLE_CONFIG["layout"]
+    small = STYLE_CONFIG["small"]
 
-    label_font = load_font(28, bold=False)
-    number_font = load_font(24, bold=False)
+    cream = colors["cream"]
+    muted = colors["muted"]
+    soft_muted = colors["soft_muted"]
 
-    if slide_number == 1:
-        main_font = load_font(68, bold=True)
-        max_lines = 5
-        text_y = 760
-    else:
-        main_font = load_font(48, bold=False)
-        max_lines = 8
-        text_y = 830
+    header_font = load_font(small["header_size"], bold=False)
+    number_font = load_font(small["number_size"], bold=False)
+    footer_font = load_font(small["footer_size"], bold=False)
 
-    margin_x = 76
-    max_width = W - margin_x * 2
+    margin_x = layout["margin_x"]
 
-    # header
-    draw.text(
-        (margin_x, 72),
+    # Header: тише, меньше, с лёгким tracking.
+    draw_tracking_text(
+        draw,
+        (margin_x, layout["header_y"]),
         "SV FASHION MEDIA",
-        font=label_font,
-        fill=muted,
+        header_font,
+        muted,
+        tracking=small["tracking"],
     )
 
     draw.text(
-        (W - 160, 72),
+        (W - 160, layout["header_y"]),
         f"{slide_number:02d}/{total_slides:02d}",
         font=number_font,
         fill=muted,
     )
 
-    # короткая линия
+    # Линия стала короче и тоньше.
     draw.line(
-        (margin_x, 128, margin_x + 130, 128),
-        fill=muted,
-        width=2,
+        (
+            margin_x,
+            layout["rule_y"],
+            margin_x + layout["rule_width"],
+            layout["rule_y"],
+        ),
+        fill=soft_muted,
+        width=1,
     )
 
-    # если текст слишком длинный — уменьшаем шрифт
-    lines = wrap_text(draw, text, main_font, max_width)
+    if slide_number == 1:
+        text_cfg = STYLE_CONFIG["cover"]
+    else:
+        text_cfg = STYLE_CONFIG["body"]
 
-    while len(lines) > max_lines and main_font.size > 34:
-        main_font = load_font(main_font.size - 4, bold=(slide_number == 1))
-        lines = wrap_text(draw, text, main_font, max_width)
+    draw_main_text_block(
+        draw=draw,
+        text=text,
+        cfg=text_cfg,
+        color=cream,
+    )
 
-    lines = lines[:max_lines]
-
-    line_height = int(main_font.size * 1.25)
-
-    for i, line in enumerate(lines):
-        draw.text(
-            (margin_x, text_y + i * line_height),
-            line,
-            font=main_font,
-            fill=cream,
-            stroke_width=1,
-            stroke_fill=(0, 0, 0, 120),
-        )
-
-    # footer
+    # Footer: меньше и спокойнее.
     draw.text(
-        (margin_x, H - 86),
+        (margin_x, layout["footer_y"]),
         "@sv_fashionacademy",
-        font=label_font,
-        fill=muted,
+        font=footer_font,
+        fill=soft_muted,
     )
 
     return canvas.convert("RGB")
-
 
 def update_visual_job(record_id: str, fields: dict, rendered_files: list[str]) -> None:
     url = f"{airtable_table_url(VISUAL_TABLE_NAME)}/{record_id}"
