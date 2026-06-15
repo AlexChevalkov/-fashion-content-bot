@@ -55,9 +55,9 @@ FONT_BOLD = os.environ.get(
 
 # Statuses
 STATUS_QUEUED = "Queued"
-STATUS_BRIEF_READY = "In Production"
 STATUS_RENDERING = "In Production"
 STATUS_NEEDS_REVIEW = "Needs Visual Review"
+STATUS_APPROVED = "Approved Visual"
 STATUS_ERROR = "Failed"
 
 
@@ -935,6 +935,242 @@ Generated at {now_iso()}
     )
 
     print("Done. Reel brief generated and moved to Needs Visual Review.")
+    def download_reel_image(image_url: str, filename: str) -> str:
+    output_dir = Path("outputs")
+    output_dir.mkdir(exist_ok=True)
+
+    response = requests.get(image_url, timeout=120)
+
+    if response.status_code != 200:
+        raise RuntimeError(f"Could not download reel image: {image_url}")
+
+    output_path = output_dir / filename
+    output_path.write_bytes(response.content)
+
+    print("Saved reel keyframe:", output_path)
+
+    return str(output_path)
+
+
+def build_reel_keyframe_prompts(fields: Dict[str, Any]) -> list[Dict[str, str]]:
+    title = safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title")
+    visual_hook = safe_get(fields, "Visual Hook")
+    visual_concept = safe_get(fields, "Visual Concept")
+    reel_hook = safe_get(fields, "Reel Hook")
+    krea_prompt_pack = safe_get(fields, "Krea Prompt Pack")
+    shot_list = safe_get(fields, "Shot List")
+    on_screen_text = safe_get(fields, "On-screen Text")
+
+    base_style = f"""
+SV Fashion Media reel keyframe.
+
+Vertical 9:16 composition.
+Quiet luxury. Editorial intelligence. Negative space.
+Cold light, matte surfaces, controlled shadows.
+The image must feel like a deliberate fashion editorial symbol, not stock photography.
+No text inside the image.
+No logos.
+No fake brand names.
+No random letters.
+No people unless absolutely necessary.
+No glossy catalogue look.
+No TikTok visual noise.
+Leave clear empty space for on-screen typography.
+
+Topic:
+{title}
+
+Visual Hook:
+{visual_hook}
+
+Visual Concept:
+{visual_concept}
+
+Reel Hook:
+{reel_hook}
+
+Shot List:
+{shot_list}
+
+On-screen Text:
+{on_screen_text}
+
+Existing Krea Prompt Pack:
+{krea_prompt_pack}
+""".strip()
+
+    return [
+        {
+            "name": "start",
+            "prompt": f"""
+{base_style}
+
+KEYFRAME 1 — START FRAME:
+Create the opening frame of the reel.
+A symbolic fashion object in large empty space.
+The image should immediately express distance, silence, desire and control.
+Strong negative space for the first on-screen phrase.
+Premium editorial still life.
+Restrained, sharp, intelligent.
+""".strip(),
+        },
+        {
+            "name": "middle",
+            "prompt": f"""
+{base_style}
+
+KEYFRAME 2 — MIDDLE FRAME:
+Create the middle frame of the reel.
+Develop the idea visually.
+Show the tension between accessibility and distance without literal explanation.
+Use object placement, material, shadow, scale and framing.
+The composition should feel slightly more tense than the first frame.
+Still premium, restrained and editorial.
+""".strip(),
+        },
+        {
+            "name": "final",
+            "prompt": f"""
+{base_style}
+
+KEYFRAME 3 — FINAL FRAME:
+Create the final frame of the reel.
+The frame should feel like a conclusion.
+Quiet, restrained, premium, almost silent.
+One object or symbolic arrangement.
+More empty space than visual information.
+A sense of editorial finality.
+""".strip(),
+        },
+    ]
+
+
+def process_reel_keyframes_record(record: Dict[str, Any]) -> None:
+    record_id = record["id"]
+    fields = record.get("fields", {})
+
+    existing_links = safe_get(fields, "Output Links", "")
+    existing_notes = safe_get(fields, "Render Notes", "")
+
+    print("Reel Keyframes Mode detected.")
+    print("Record ID:", record_id)
+    print("Job Title:", safe_get(fields, "Job Title"))
+
+    try:
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_RENDERING,
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"Reel Keyframes Mode started at {now_iso()}",
+                ),
+            },
+        )
+
+        prompts = build_reel_keyframe_prompts(fields)
+
+        results = []
+
+        for index, item in enumerate(prompts, start=1):
+            name = item["name"]
+            prompt = item["prompt"]
+
+            print("=" * 80)
+            print(f"Rendering reel keyframe {index}: {name}")
+            print(prompt)
+
+            job_id = create_krea_image_job(
+                prompt=prompt,
+                aspect_ratio="9:16",
+            )
+
+            image_url = poll_krea_job(job_id)
+
+            local_path = download_reel_image(
+                image_url=image_url,
+                filename=f"reel_keyframe_{index:02d}_{name}.png",
+            )
+
+            results.append(
+                {
+                    "index": index,
+                    "name": name,
+                    "image_url": image_url,
+                    "job_id": job_id,
+                    "local_path": local_path,
+                }
+            )
+
+        output_lines = []
+
+        if existing_links.strip():
+            output_lines.append(existing_links.strip())
+            output_lines.append("")
+            output_lines.append("---")
+            output_lines.append("")
+
+        output_lines.append("Reel keyframes generated:")
+
+        for item in results:
+            output_lines.append(
+                f"Keyframe {item['index']} — {item['name']}: {item['image_url']} | job_id: {item['job_id']}"
+            )
+
+        output_lines.append("")
+        output_lines.append("Artifact: visual-production-output")
+        output_lines.append(f"Generated at: {now_iso()}")
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_NEEDS_REVIEW,
+                "Output Links": "\n".join(output_lines).strip(),
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"""
+Reel Keyframes Mode completed.
+
+Generated 3 vertical 9:16 keyframes:
+1. Start frame
+2. Middle frame
+3. Final frame
+
+No video generated yet.
+Status moved to Needs Visual Review.
+
+Generated at:
+{now_iso()}
+""",
+                ),
+            },
+        )
+
+        print("Done. Reel keyframes generated and moved to Needs Visual Review.")
+
+    except Exception as exc:
+        print("Reel Keyframes Mode failed:", repr(exc))
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_ERROR,
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"""
+Reel Keyframes Mode failed.
+
+Error:
+{repr(exc)}
+
+Failed at:
+{now_iso()}
+""",
+                ),
+            },
+        )
+
+        raise
 def process_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record["fields"]
@@ -943,13 +1179,27 @@ def process_record(record: Dict[str, Any]) -> None:
     print("=" * 80)
     print(f"Processing record: {record_id}")
     print(f"Job title: {job_title}")
-    format_value = (
-        safe_get(fields, "Format") or safe_get(fields, "Chosen Format")
-    ).strip().lower()
+    status_value = safe_get(fields, "Visual Status", "").strip()
 
-    if "reel" in format_value and "carousel" not in format_value:
+format_value = (
+    safe_get(fields, "Format") or safe_get(fields, "Chosen Format")
+).strip().lower()
+
+if "reel" in format_value and "carousel" not in format_value:
+    if status_value == STATUS_QUEUED:
         process_reel_brief_record(record)
         return
+
+    if status_value == STATUS_APPROVED:
+        if "Reel keyframes generated" in safe_get(fields, "Output Links", ""):
+            print("Reel keyframes already generated. Skipping.")
+            return
+
+        process_reel_keyframes_record(record)
+        return
+
+    print(f"Reel record is not actionable. Status: {status_value}")
+    return
     try:
         # 1. Brief
         update_airtable_record(record_id, {"Visual Status": STATUS_RENDERING})
