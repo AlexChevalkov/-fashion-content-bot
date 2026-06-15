@@ -27,7 +27,7 @@ jobs:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           AIRTABLE_TABLE_NAME: Visual Jobs
-          AIRTABLE_VIEW_NAME: Queued Visual Jobs
+          AIRTABLE_VIEW_NAME: Queue
           BRAND_NAME: SV FASHION MEDIA
           INSTAGRAM_HANDLE: "@sv_fashionacademy"
         run: |
