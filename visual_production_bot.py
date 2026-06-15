@@ -752,7 +752,189 @@ def render_assembled_slide(
 # =========================================================
 # MAIN PIPELINE
 # =========================================================
+def append_note(existing: str, addition: str) -> str:
+    existing = existing or ""
+    addition = addition or ""
 
+    if existing.strip():
+        return existing.strip() + "\n\n---\n\n" + addition.strip()
+
+    return addition.strip()
+
+
+def generate_reel_brief(record: Dict[str, Any]) -> Dict[str, Any]:
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    fields = record["fields"]
+    source_context = build_source_context(fields)
+
+    system_prompt = f"""
+Ты — creative director и reel producer для {BRAND_NAME}.
+
+Задача:
+Сделать production-ready brief для Instagram Reel.
+
+Важно:
+- Пока НЕ генерируем видео.
+- Пока НЕ запускаем Krea.
+- Нужно создать структуру рилса, текст, сценарий, shot list и prompts для будущей генерации.
+- Стиль должен продолжать visual language SV Fashion Media:
+  quiet luxury, editorial intelligence, distance, negative space, fashion as context.
+- Не делать TikTok-кричалку.
+- Не делать рекламный ролик.
+- Не делать глянцевую восторженность.
+- Рилс должен ощущаться как короткая fashion-media колонка в движении.
+
+Тон:
+сухо, умно, точно, премиально.
+"""
+
+    user_prompt = f"""
+Вот контекст исходного поста:
+
+{source_context}
+
+Сделай production package для Reel.
+
+Верни строго валидный JSON без markdown.
+
+Схема:
+{{
+  "job_title": "короткое название reel job",
+  "chosen_format": "Reel",
+  "visual_mode": "Hybrid",
+  "visual_hook": "короткая визуальная идея",
+  "visual_concept": "визуальная концепция рилса",
+  "reel_hook": "первая фраза рилса, до 12 слов",
+  "reel_duration": "30 sec",
+  "reel_script": "voiceover script на русском, 90-130 слов, короткие фразы",
+  "shot_list": "5-7 сцен с таймингом: 0-3 sec, 3-7 sec и т.д.",
+  "on_screen_text": "короткие фразы для экрана, по одной на сцену",
+  "krea_prompt_pack": "prompts на английском для keyframes / motion: cover frame, scene 1, scene 2, scene 3, final frame. Без текста внутри изображения.",
+  "render_notes": "короткие notes: как собирать рилс, темп, музыка, движение камеры"
+}}
+
+Правила:
+- Reel должен быть не пересказом поста, а усилением идеи.
+- Визуал: объект, пустота, дистанция, тень, материал, фактура.
+- Движение: медленное, почти неподвижное, дорогое.
+- Не использовать людей, если они не нужны.
+- Не просить генерировать текст внутри изображения.
+- On-screen text должен быть коротким.
+- Voiceover должен звучать как авторская fashion-колонка.
+"""
+
+    message = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=2200,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    response_text = message.content[0].text
+
+    print("Claude reel brief raw response:")
+    print(response_text)
+
+    brief = extract_json(response_text)
+
+    required = [
+        "job_title",
+        "chosen_format",
+        "visual_mode",
+        "visual_hook",
+        "visual_concept",
+        "reel_hook",
+        "reel_duration",
+        "reel_script",
+        "shot_list",
+        "on_screen_text",
+        "krea_prompt_pack",
+        "render_notes",
+    ]
+
+    for key in required:
+        if key not in brief:
+            raise ValueError(f"Claude reel brief missing key: {key}")
+
+    brief["chosen_format"] = "Reel"
+    brief["visual_mode"] = brief.get("visual_mode") or "Hybrid"
+    brief["reel_duration"] = brief.get("reel_duration") or "30 sec"
+
+    return brief
+
+
+def process_reel_brief_record(record: Dict[str, Any]) -> None:
+    record_id = record["id"]
+    fields = record.get("fields", {})
+    existing_notes = safe_get(fields, "Render Notes", "")
+
+    print("Reel Brief Mode detected.")
+    print("Record ID:", record_id)
+    print("Job Title:", safe_get(fields, "Job Title"))
+
+    update_airtable_record(
+        record_id,
+        {
+            "Visual Status": STATUS_RENDERING,
+            "Render Notes": append_note(
+                existing_notes,
+                f"Reel Brief Mode started at {now_iso()}",
+            ),
+        },
+    )
+
+    brief = generate_reel_brief(record)
+
+    output_links = f"""
+Reel Brief Mode v1 output:
+No video generated yet.
+No Krea render generated yet.
+
+This record is ready for reel review:
+- Reel Hook
+- Reel Script
+- Shot List
+- On-screen Text
+- Krea Prompt Pack
+
+Generated at:
+{now_iso()}
+""".strip()
+
+    update_airtable_record(
+        record_id,
+        {
+            "Job Title": brief["job_title"],
+            "Format": "Reel",
+            "Chosen Format": "Reel",
+            "Visual Mode": brief["visual_mode"],
+            "Visual Hook": brief["visual_hook"],
+            "Visual Concept": brief["visual_concept"],
+            "Reel Hook": brief["reel_hook"],
+            "Reel Duration": brief["reel_duration"],
+            "Reel Script": brief["reel_script"],
+            "Shot List": brief["shot_list"],
+            "On-screen Text": brief["on_screen_text"],
+            "Krea Prompt Pack": brief["krea_prompt_pack"],
+            "Krea Model Recommendation": "Manual Choice",
+            "Output Links": output_links,
+            "Render Notes": append_note(
+                existing_notes,
+                f"""
+Reel Brief Mode v1 completed.
+
+{brief["render_notes"]}
+
+Status moved to Needs Visual Review.
+Generated at {now_iso()}
+""",
+            ),
+            "Visual Status": STATUS_NEEDS_REVIEW,
+        },
+    )
+
+    print("Done. Reel brief generated and moved to Needs Visual Review.")
 def process_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record["fields"]
@@ -761,7 +943,13 @@ def process_record(record: Dict[str, Any]) -> None:
     print("=" * 80)
     print(f"Processing record: {record_id}")
     print(f"Job title: {job_title}")
+    format_value = (
+        safe_get(fields, "Format") or safe_get(fields, "Chosen Format")
+    ).strip().lower()
 
+    if "reel" in format_value and "carousel" not in format_value:
+        process_reel_brief_record(record)
+        return
     try:
         # 1. Brief
         update_airtable_record(record_id, {"Visual Status": STATUS_RENDERING})
