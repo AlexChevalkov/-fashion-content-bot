@@ -2137,7 +2137,7 @@ def process_record(record: Dict[str, Any]) -> None:
         safe_get(fields, "Format") or safe_get(fields, "Chosen Format")
     ).strip().lower()
 
-        if "reel" in format_value and "carousel" not in format_value:
+    if "reel" in format_value and "carousel" not in format_value:
         output_links = safe_get(fields, "Output Links", "")
 
         if status_value == STATUS_QUEUED:
