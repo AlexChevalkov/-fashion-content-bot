@@ -2087,6 +2087,13 @@ def process_reel_text_overlay_record(record: Dict[str, Any]) -> None:
             overlay_texts=overlay_texts,
             output_filename="final_reel_text_v1.mp4",
         )
+        reel_cover_title = get_reel_cover_title(fields, overlay_texts)
+
+        reel_cover_path = create_reel_cover_from_keyframe(
+            output_links=existing_links,
+            title=reel_cover_title,
+            output_filename="reel_cover_v1.png",
+        )
 
         output_lines = []
 
@@ -2098,6 +2105,10 @@ def process_reel_text_overlay_record(record: Dict[str, Any]) -> None:
 
         output_lines.append("Final reel with text generated:")
         output_lines.append(f"Local file: {final_text_reel_path}")
+        output_lines.append("")
+        output_lines.append("Reel cover generated:")
+        output_lines.append(f"Local file: {reel_cover_path}")
+        output_lines.append("")
         output_lines.append("Artifact: visual-production-outputs")
         output_lines.append(f"Generated at: {now_iso()}")
 
@@ -2148,7 +2159,136 @@ Failed at:
             },
         )
 
-        raise        
+        raise 
+def get_reel_cover_title(fields: Dict[str, Any], overlay_texts: List[str]) -> str:
+    title = safe_get(fields, "Reel Cover Title", "")
+
+    if not title:
+        title = safe_get(fields, "Overlay 1", "")
+
+    if not title and overlay_texts:
+        title = overlay_texts[0]
+
+    if not title:
+        title = safe_get(fields, "Reel Hook", "")
+
+    if not title:
+        title = "Luxury продаёт дистанцию"
+
+    title = clean_overlay_line(title)
+    title = title.replace("\n", " ").strip()
+
+    return title
+
+
+def fit_cover_image_to_canvas(image: Image.Image, width: int = 1080, height: int = 1920) -> Image.Image:
+    image = image.convert("RGB")
+
+    scale = max(width / image.width, height / image.height)
+    new_w = int(image.width * scale)
+    new_h = int(image.height * scale)
+
+    resized = image.resize((new_w, new_h), Image.LANCZOS)
+
+    left = max(0, (new_w - width) // 2)
+    top = max(0, (new_h - height) // 2)
+
+    return resized.crop((left, top, left + width, top + height))
+
+
+def draw_reel_cover_text(base: Image.Image, title: str) -> Image.Image:
+    canvas = base.convert("RGBA")
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    width, height = canvas.size
+
+    title = title.upper()
+    font = get_font(FONT_BOLD, 64)
+
+    max_text_width = int(width * 0.78)
+    wrapped_lines = wrap_text_lines(draw, title, font, max_text_width)
+
+    wrapped_lines = wrapped_lines[:3]
+
+    line_spacing = 10
+    line_heights = []
+
+    max_line_width = 0
+    total_text_height = 0
+
+    for line in wrapped_lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        line_w = bbox[2] - bbox[0]
+        line_h = bbox[3] - bbox[1]
+
+        max_line_width = max(max_line_width, line_w)
+        line_heights.append(line_h)
+        total_text_height += line_h + line_spacing
+
+    total_text_height = max(0, total_text_height - line_spacing)
+
+    padding_x = 32
+    padding_y = 24
+
+    box_x = 70
+    box_y = int(height * 0.66)
+
+    box_w = max_line_width + padding_x * 2
+    box_h = total_text_height + padding_y * 2
+
+    draw.rectangle(
+        [box_x, box_y, box_x + box_w, box_y + box_h],
+        fill=(0, 0, 0, 78),
+    )
+
+    cursor_y = box_y + padding_y
+
+    for idx, line in enumerate(wrapped_lines):
+        draw.text(
+            (box_x + padding_x, cursor_y),
+            line,
+            font=font,
+            fill=(255, 255, 255, 255),
+        )
+
+        cursor_y += line_heights[idx] + line_spacing
+
+    result = Image.alpha_composite(canvas, overlay).convert("RGB")
+
+    return result
+
+
+def create_reel_cover_from_keyframe(
+    output_links: str,
+    title: str,
+    output_filename: str = "reel_cover_v1.png",
+) -> str:
+    keyframes = extract_reel_keyframe_urls(output_links)
+
+    if not keyframes:
+        raise RuntimeError("No keyframe URL found for reel cover")
+
+    keyframe_url = keyframes[0]["url"]
+
+    response = requests.get(keyframe_url, timeout=120)
+
+    if response.status_code != 200:
+        raise RuntimeError(f"Could not download keyframe for reel cover: {keyframe_url}")
+
+    image = Image.open(BytesIO(response.content)).convert("RGB")
+    image = fit_cover_image_to_canvas(image, width=1080, height=1920)
+    image = draw_reel_cover_text(image, title)
+
+    output_dir = Path("outputs")
+    output_dir.mkdir(exist_ok=True)
+
+    output_path = output_dir / output_filename
+    image.save(output_path, format="PNG", quality=95)
+
+    print("Reel cover created:", output_path)
+
+    return str(output_path)        
 def process_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record["fields"]
