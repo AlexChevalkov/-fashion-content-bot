@@ -2137,35 +2137,35 @@ def process_record(record: Dict[str, Any]) -> None:
         safe_get(fields, "Format") or safe_get(fields, "Chosen Format")
     ).strip().lower()
 
-    if "reel" in format_value and "carousel" not in format_value:
+        if "reel" in format_value and "carousel" not in format_value:
         output_links = safe_get(fields, "Output Links", "")
 
-    if status_value == STATUS_QUEUED:
-        process_reel_brief_record(record)
-        return
+        if status_value == STATUS_QUEUED:
+            process_reel_brief_record(record)
+            return
 
-    if status_value == STATUS_APPROVED:
-    if "Final reel with text generated" in output_links:
-        print("Final reel with text already generated. Skipping.")
-        return
+        if status_value == STATUS_APPROVED:
+            if "Final reel with text generated" in output_links:
+                print("Final reel with text already generated. Skipping.")
+                return
 
-    if "Final reel assembled" in output_links:
-        process_reel_text_overlay_record(record)
-        return
+            if "Final reel assembled" in output_links:
+                process_reel_text_overlay_record(record)
+                return
 
-    if "Reel motion clips generated" in output_links:
-        process_reel_assembly_record(record)
-        return
+            if "Reel motion clips generated" in output_links:
+                process_reel_assembly_record(record)
+                return
 
-    if "Reel keyframes generated" in output_links:
-        process_reel_motion_record(record)
-        return
+            if "Reel keyframes generated" in output_links:
+                process_reel_motion_record(record)
+                return
 
-        process_reel_keyframes_record(record)
-        return
+            process_reel_keyframes_record(record)
+            return
 
-    print(f"Reel record is not actionable. Status: {status_value}")
-    return
+        print(f"Reel record is not actionable. Status: {status_value}")
+        return
 
     try:
         # 1. Brief
