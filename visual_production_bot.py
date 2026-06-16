@@ -1212,23 +1212,51 @@ Failed at:
 
         raise
 
-def extract_first_reel_keyframe_url(output_links: str) -> str:
+def extract_reel_keyframe_urls(output_links: str) -> List[Dict[str, str]]:
     text = output_links or ""
 
-    patterns = [
-        r"Keyframe\s*1[^\n:]*:\s*(https?://\S+)",
-        r"Keyframe\s*01[^\n:]*:\s*(https?://\S+)",
-    ]
+    pattern = r"Keyframe\s*(\d+)[^\n:]*:\s*(https?://[^\s|]+)"
+    matches = re.findall(pattern, text, re.IGNORECASE)
 
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            url = match.group(1).strip()
-            url = url.split("|")[0].strip()
-            url = url.rstrip(".,)")
-            return url
+    if not matches:
+        raise RuntimeError("Could not find reel keyframe image URLs in Output Links")
 
-    raise RuntimeError("Could not find Keyframe 1 image URL in Output Links")
+    seen = set()
+    results: List[Dict[str, str]] = []
+
+    for index_text, url in matches:
+        index = int(index_text)
+
+        if index in seen:
+            continue
+
+        seen.add(index)
+
+        if index == 1:
+            name = "start"
+        elif index == 2:
+            name = "middle"
+        elif index == 3:
+            name = "final"
+        else:
+            name = f"extra_{index}"
+
+        results.append(
+            {
+                "index": str(index),
+                "name": name,
+                "url": url.strip().rstrip(".,)"),
+            }
+        )
+
+    results.sort(key=lambda item: int(item["index"]))
+
+    if len(results) < 3:
+        raise RuntimeError(
+            f"Expected 3 reel keyframe URLs, found {len(results)}: {results}"
+        )
+
+    return results[:3]
 
 
 def build_reel_motion_prompt(fields: Dict[str, Any]) -> str:
@@ -1452,25 +1480,54 @@ def process_reel_motion_record(record: Dict[str, Any]) -> None:
             },
         )
 
-        start_image_url = extract_first_reel_keyframe_url(existing_links)
-        prompt = build_reel_motion_prompt(fields)
+        keyframes = extract_reel_keyframe_urls(existing_links)
 
-        print("Using start image URL:", start_image_url)
-        print("Motion prompt:")
-        print(prompt)
+        base_prompt = build_reel_motion_prompt(fields)
 
-        job_id = create_krea_video_job(
-            start_image_url=start_image_url,
-            prompt=prompt,
-            duration=5,
-        )
+        results = []
 
-        video_url = poll_krea_video_job(job_id)
+        for item in keyframes:
+            index = item["index"]
+            name = item["name"]
+            start_image_url = item["url"]
 
-        local_path = download_reel_video(
-            video_url=video_url,
-            filename="reel_motion_clip_01.mp4",
-        )
+            prompt = f"""
+{base_prompt}
+
+This motion clip is based on keyframe {index}: {name}.
+Create only this one short segment.
+Preserve this exact source image.
+Do not introduce visual elements from other keyframes.
+""".strip()
+
+            print("=" * 80)
+            print(f"Rendering reel motion clip {index}: {name}")
+            print("Using start image URL:", start_image_url)
+            print("Motion prompt:")
+            print(prompt)
+
+            job_id = create_krea_video_job(
+                start_image_url=start_image_url,
+                prompt=prompt,
+                duration=5,
+            )
+
+            video_url = poll_krea_video_job(job_id)
+
+            local_path = download_reel_video(
+                video_url=video_url,
+                filename=f"reel_motion_clip_{int(index):02d}_{name}.mp4",
+            )
+
+            results.append(
+                {
+                    "index": index,
+                    "name": name,
+                    "video_url": video_url,
+                    "job_id": job_id,
+                    "local_path": local_path,
+                }
+            )
 
         output_lines = []
 
@@ -1480,9 +1537,14 @@ def process_reel_motion_record(record: Dict[str, Any]) -> None:
             output_lines.append("---")
             output_lines.append("")
 
-        output_lines.append("Reel motion clip generated:")
-        output_lines.append(f"Motion clip 1: {video_url} | job_id: {job_id}")
-        output_lines.append(f"Local file: {local_path}")
+        output_lines.append("Reel motion clips generated:")
+
+        for item in results:
+            output_lines.append(
+                f"Motion clip {item['index']} — {item['name']}: {item['video_url']} | job_id: {item['job_id']}"
+            )
+            output_lines.append(f"Local file: {item['local_path']}")
+
         output_lines.append("")
         output_lines.append("Artifact: visual-production-outputs")
         output_lines.append(f"Generated at: {now_iso()}")
@@ -1497,7 +1559,12 @@ def process_reel_motion_record(record: Dict[str, Any]) -> None:
                     f"""
 Reel Motion Mode completed.
 
-Generated 1 vertical 5 sec motion clip from Keyframe 1.
+Generated 3 vertical 5 sec motion clips:
+1. Start
+2. Middle
+3. Final
+
+No final reel assembly yet.
 Status moved to Needs Visual Review.
 
 Generated at:
@@ -1507,7 +1574,7 @@ Generated at:
             },
         )
 
-        print("Done. Reel motion clip generated and moved to Needs Visual Review.")
+        print("Done. 3 reel motion clips generated and moved to Needs Visual Review.")
 
     except Exception as exc:
         print("Reel Motion Mode failed:", repr(exc))
@@ -1555,7 +1622,7 @@ def process_record(record: Dict[str, Any]) -> None:
             return
 
         if status_value == STATUS_APPROVED:
-            if "Reel motion clip generated" in output_links:
+            if "Reel motion clips generated" in output_links:
                 print("Reel motion clip already generated. Skipping.")
                 return
 
