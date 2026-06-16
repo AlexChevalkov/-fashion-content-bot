@@ -2610,8 +2610,8 @@ def process_record(record: Dict[str, Any]) -> None:
             return
 
         if status_value == STATUS_APPROVED:
-            if "Final reel caption generated" in output_links:
-                print("Final reel caption already generated. Skipping.")
+            if "READY FOR BUFFER PACKAGE" in output_links:
+                print("Ready for Buffer package already generated. Skipping.")
                 return
 
             if "Final reel with text generated" in output_links:
