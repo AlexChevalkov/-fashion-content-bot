@@ -1212,7 +1212,289 @@ Failed at:
 
         raise
 
+def extract_first_reel_keyframe_url(output_links: str) -> str:
+    text = output_links or ""
 
+    patterns = [
+        r"Keyframe\s*1[^\n:]*:\s*(https?://\S+)",
+        r"Keyframe\s*01[^\n:]*:\s*(https?://\S+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            url = match.group(1).strip()
+            url = url.split("|")[0].strip()
+            url = url.rstrip(".,)")
+            return url
+
+    raise RuntimeError("Could not find Keyframe 1 image URL in Output Links")
+
+
+def build_reel_motion_prompt(fields: Dict[str, Any]) -> str:
+    title = safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title")
+    reel_hook = safe_get(fields, "Reel Hook")
+    reel_script = safe_get(fields, "Reel Script")
+    shot_list = safe_get(fields, "Shot List")
+    visual_concept = safe_get(fields, "Visual Concept")
+
+    return f"""
+Create a 5 second vertical fashion editorial video from the provided start image.
+
+The video should feel like SV Fashion Media:
+quiet luxury, editorial intelligence, distance, restraint, negative space.
+
+Movement:
+- extremely slow camera push-in
+- subtle parallax
+- almost still
+- no fast cuts
+- no TikTok style
+- no commercial advertising energy
+- no added text
+- no logos
+- no new objects
+- no people
+- no hands
+- no morphing of the object
+- preserve the object identity and composition
+- preserve the cold light and premium editorial mood
+
+Topic:
+{title}
+
+Visual concept:
+{visual_concept}
+
+Reel hook:
+{reel_hook}
+
+Reel script:
+{reel_script}
+
+Shot list:
+{shot_list}
+
+The result should feel like a short moving magazine image.
+""".strip()
+
+
+def create_krea_video_job(start_image_url: str, prompt: str, duration: int = 5) -> str:
+    url = f"{KREA_API_BASE}/generate/video/kling/kling-2.5"
+
+    payload = {
+        "prompt": prompt[:3000],
+        "start_image": start_image_url,
+        "aspect_ratio": "9:16",
+        "duration": duration,
+    }
+
+    response = requests.post(
+        url,
+        headers=krea_headers(),
+        json=payload,
+        timeout=60,
+    )
+
+    print("Create Krea video job URL:", url)
+    print("Create Krea video job status:", response.status_code)
+    print("Create Krea video job preview:", shorten(response.text, 1200))
+
+    response.raise_for_status()
+
+    data = response.json()
+    job_id = data.get("job_id")
+
+    if not job_id:
+        raise RuntimeError(f"Krea video did not return job_id: {data}")
+
+    return job_id
+
+
+def extract_video_url_from_krea_result(data: Dict[str, Any]) -> str:
+    result = data.get("result") or {}
+
+    candidates: List[str] = []
+
+    def collect_urls(obj: Any) -> None:
+        if isinstance(obj, str):
+            if obj.startswith("http"):
+                candidates.append(obj)
+            return
+
+        if isinstance(obj, list):
+            for item in obj:
+                collect_urls(item)
+            return
+
+        if isinstance(obj, dict):
+            for value in obj.values():
+                collect_urls(value)
+
+    collect_urls(result)
+
+    if not candidates:
+        raise RuntimeError(f"Krea video completed but no URL found: {data}")
+
+    for url in candidates:
+        lowered = url.lower()
+        if ".mp4" in lowered or "video" in lowered:
+            return url
+
+    return candidates[0]
+
+
+def poll_krea_video_job(job_id: str, max_wait_seconds: int = 600) -> str:
+    url = f"{KREA_API_BASE}/jobs/{job_id}"
+    started = time.time()
+
+    while time.time() - started < max_wait_seconds:
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {KREA_API_KEY}"},
+            timeout=60,
+        )
+
+        print("Poll Krea video URL:", url)
+        print("Poll Krea video status:", response.status_code)
+        print("Poll Krea video preview:", shorten(response.text, 1200))
+
+        response.raise_for_status()
+
+        data = response.json()
+        status = data.get("status")
+
+        if status == "completed":
+            return extract_video_url_from_krea_result(data)
+
+        if status in {"failed", "cancelled", "canceled"}:
+            raise RuntimeError(f"Krea video job failed: {data}")
+
+        time.sleep(8)
+
+    raise TimeoutError(f"Krea video job timed out: {job_id}")
+
+
+def download_reel_video(video_url: str, filename: str) -> str:
+    output_dir = Path("outputs")
+    output_dir.mkdir(exist_ok=True)
+
+    response = requests.get(video_url, timeout=180)
+
+    if response.status_code != 200:
+        raise RuntimeError(f"Could not download reel video: {video_url}")
+
+    output_path = output_dir / filename
+    output_path.write_bytes(response.content)
+
+    print("Saved reel motion clip:", output_path)
+
+    return str(output_path)
+
+
+def process_reel_motion_record(record: Dict[str, Any]) -> None:
+    record_id = record["id"]
+    fields = record.get("fields", {})
+
+    existing_links = safe_get(fields, "Output Links", "")
+    existing_notes = safe_get(fields, "Render Notes", "")
+
+    print("Reel Motion Mode detected.")
+    print("Record ID:", record_id)
+    print("Job Title:", safe_get(fields, "Job Title"))
+
+    try:
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_RENDERING,
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"Reel Motion Mode started at {now_iso()}",
+                ),
+            },
+        )
+
+        start_image_url = extract_first_reel_keyframe_url(existing_links)
+        prompt = build_reel_motion_prompt(fields)
+
+        print("Using start image URL:", start_image_url)
+        print("Motion prompt:")
+        print(prompt)
+
+        job_id = create_krea_video_job(
+            start_image_url=start_image_url,
+            prompt=prompt,
+            duration=5,
+        )
+
+        video_url = poll_krea_video_job(job_id)
+
+        local_path = download_reel_video(
+            video_url=video_url,
+            filename="reel_motion_clip_01.mp4",
+        )
+
+        output_lines = []
+
+        if existing_links.strip():
+            output_lines.append(existing_links.strip())
+            output_lines.append("")
+            output_lines.append("---")
+            output_lines.append("")
+
+        output_lines.append("Reel motion clip generated:")
+        output_lines.append(f"Motion clip 1: {video_url} | job_id: {job_id}")
+        output_lines.append(f"Local file: {local_path}")
+        output_lines.append("")
+        output_lines.append("Artifact: visual-production-outputs")
+        output_lines.append(f"Generated at: {now_iso()}")
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_NEEDS_REVIEW,
+                "Output Links": "\n".join(output_lines).strip(),
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"""
+Reel Motion Mode completed.
+
+Generated 1 vertical 5 sec motion clip from Keyframe 1.
+Status moved to Needs Visual Review.
+
+Generated at:
+{now_iso()}
+""",
+                ),
+            },
+        )
+
+        print("Done. Reel motion clip generated and moved to Needs Visual Review.")
+
+    except Exception as exc:
+        print("Reel Motion Mode failed:", repr(exc))
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_ERROR,
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"""
+Reel Motion Mode failed.
+
+Error:
+{repr(exc)}
+
+Failed at:
+{now_iso()}
+""",
+                ),
+            },
+        )
+
+        raise
 def process_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record["fields"]
@@ -1230,21 +1512,27 @@ def process_record(record: Dict[str, Any]) -> None:
     # Reel-only branch:
     # Queued          -> generate Reel Brief
     # Approved Visual -> generate 9:16 keyframes
-    if "reel" in format_value and "carousel" not in format_value:
-        if status_value == STATUS_QUEUED:
-            process_reel_brief_record(record)
-            return
+if "reel" in format_value and "carousel" not in format_value:
+    output_links = safe_get(fields, "Output Links", "")
 
-        if status_value == STATUS_APPROVED:
-            if "Reel keyframes generated" in safe_get(fields, "Output Links", ""):
-                print("Reel keyframes already generated. Skipping.")
-                return
-
-            process_reel_keyframes_record(record)
-            return
-
-        print(f"Reel record is not actionable. Status: {status_value}")
+    if status_value == STATUS_QUEUED:
+        process_reel_brief_record(record)
         return
+
+    if status_value == STATUS_APPROVED:
+        if "Reel motion clip generated" in output_links:
+            print("Reel motion clip already generated. Skipping.")
+            return
+
+        if "Reel keyframes generated" in output_links:
+            process_reel_motion_record(record)
+            return
+
+        process_reel_keyframes_record(record)
+        return
+
+    print(f"Reel record is not actionable. Status: {status_value}")
+    return
 
     try:
         # 1. Brief
