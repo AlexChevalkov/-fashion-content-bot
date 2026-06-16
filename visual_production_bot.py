@@ -801,6 +801,12 @@ def generate_reel_brief(record: Dict[str, Any]) -> Dict[str, Any]:
 
 Тон:
 сухо, умно, точно, премиально.
+
+Критически важно:
+Krea Prompt Pack НЕ должен быть только общим style rules.
+Он обязан содержать отдельные scene-specific prompts с метками:
+cover frame:, scene 1:, scene 2:, scene 3:, scene 4:, final frame:
+Каждая сцена должна описывать конкретный визуальный объект / поверхность / ситуацию.
 """
 
     user_prompt = f"""
@@ -824,9 +830,17 @@ def generate_reel_brief(record: Dict[str, Any]) -> Dict[str, Any]:
   "reel_script": "voiceover script на русском, 90-130 слов, короткие фразы",
   "shot_list": "5-7 сцен с таймингом: 0-3 sec, 3-7 sec и т.д.",
   "on_screen_text": "короткие фразы для экрана, по одной на сцену",
-  "krea_prompt_pack": "prompts на английском для keyframes / motion: cover frame, scene 1, scene 2, scene 3, final frame. Без текста внутри изображения.",
+  "krea_prompt_pack": "cover frame: ...\n\nscene 1: ...\n\nscene 2: ...\n\nscene 3: ...\n\nscene 4: ...\n\nfinal frame: ...",
   "render_notes": "короткие notes: как собирать рилс, темп, музыка, движение камеры"
 }}
+
+Жёсткие правила для krea_prompt_pack:
+- Пиши на английском.
+- Обязательно используй ровно эти метки: cover frame, scene 1, scene 2, scene 3, scene 4, final frame.
+- Не возвращай один общий блок Style rules вместо сцен.
+- В каждой сцене должен быть конкретный визуальный subject: object, garment, fabric, surface, material, still life, architecture, color field, etc.
+- В каждой сцене: no people, no text, no logos, no letters.
+- Каждый prompt должен быть пригоден для одной вертикальной 9:16 фотографии.
 
 Правила:
 - Reel должен быть не пересказом поста, а усилением идеи.
@@ -840,7 +854,7 @@ def generate_reel_brief(record: Dict[str, Any]) -> Dict[str, Any]:
 
     message = client.messages.create(
         model=ANTHROPIC_MODEL,
-        max_tokens=2200,
+        max_tokens=2600,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
     )
@@ -874,6 +888,22 @@ def generate_reel_brief(record: Dict[str, Any]) -> Dict[str, Any]:
     brief["chosen_format"] = "Reel"
     brief["visual_mode"] = brief.get("visual_mode") or "Hybrid"
     brief["reel_duration"] = brief.get("reel_duration") or "30 sec"
+
+    # Safety: if Claude ignored the scene-specific format, repair it now before saving.
+    if not krea_prompt_pack_has_scene_labels(str(brief.get("krea_prompt_pack", ""))):
+        print("Claude returned generic Krea Prompt Pack. Repairing into scene-specific prompts...")
+        repaired_directions = generate_scene_directions_with_claude_from_fields(
+            {
+                **fields,
+                "Job Title": brief.get("job_title", safe_get(fields, "Job Title")),
+                "Visual Hook": brief.get("visual_hook", ""),
+                "Visual Concept": brief.get("visual_concept", ""),
+                "Reel Hook": brief.get("reel_hook", ""),
+                "Shot List": brief.get("shot_list", ""),
+                "Krea Prompt Pack": brief.get("krea_prompt_pack", ""),
+            }
+        )
+        brief["krea_prompt_pack"] = directions_to_krea_prompt_pack(repaired_directions)
 
     return brief
 
@@ -1012,52 +1042,216 @@ def extract_krea_prompt_sections(prompt_pack: str) -> Dict[str, str]:
     return sections
 
 
-def build_six_krea_directions(prompt_pack: str) -> List[Dict[str, str]]:
+def krea_prompt_pack_has_scene_labels(prompt_pack: str) -> bool:
     sections = extract_krea_prompt_sections(prompt_pack)
+    labelled = [key for key in sections.keys() if key != "all"]
+    return len(labelled) >= 3
+
+
+def directions_to_krea_prompt_pack(directions: List[Dict[str, str]]) -> str:
+    labels = ["cover frame", "scene 1", "scene 2", "scene 3", "scene 4", "final frame"]
+    lines: List[str] = []
+
+    for idx, item in enumerate(directions[:6]):
+        label = labels[idx] if idx < len(labels) else f"scene {idx}"
+        direction = clean_krea_direction(item.get("direction", ""))
+        lines.append(f"{label}: {direction}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def normalize_direction_for_compare(text: str) -> str:
+    text = clean_krea_direction(text).lower()
+    text = re.sub(r"[^a-zа-я0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def validate_scene_directions(directions: List[Dict[str, str]]) -> None:
+    if len(directions) < 5:
+        raise RuntimeError(f"Expected at least 5 scene-specific keyframe directions, got {len(directions)}")
+
+    normalized = [normalize_direction_for_compare(item.get("direction", "")) for item in directions]
+    unique = {item for item in normalized if item}
+
+    if len(unique) < min(5, len(directions)):
+        raise RuntimeError(
+            "Keyframe directions are not scene-specific enough: too many repeated prompts. "
+            "Stopping before Krea render to avoid wasting credits."
+        )
+
+    for idx, item in enumerate(directions, start=1):
+        direction = clean_krea_direction(item.get("direction", ""))
+        lowered = direction.lower()
+
+        if len(direction) < 80:
+            raise RuntimeError(f"Keyframe {idx} direction is too short: {direction}")
+
+        if lowered.startswith("style rules") or lowered.startswith("negative prompts"):
+            raise RuntimeError(
+                f"Keyframe {idx} is only a generic style block, not a scene prompt. "
+                "Stopping before Krea render."
+            )
+
+
+def generate_scene_directions_with_claude_from_fields(fields: Dict[str, Any]) -> List[Dict[str, str]]:
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    title = safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title")
+    source_hook = safe_get(fields, "Source Hook")
+    visual_hook = safe_get(fields, "Visual Hook")
+    visual_concept = safe_get(fields, "Visual Concept")
+    reel_hook = safe_get(fields, "Reel Hook")
+    shot_list = safe_get(fields, "Shot List")
+    style_rules = safe_get(fields, "Krea Prompt Pack")
+
+    system_prompt = """
+You are a senior visual editor for a premium fashion-media Instagram Reel.
+Convert the current reel concept into six concrete Krea image prompts.
+
+Do not return general style rules only.
+Each direction must describe one specific vertical photograph: a concrete object, fabric, surface, garment, still life, color field, architecture, or material situation.
+No text inside images. No people unless absolutely necessary. No logos. No letters.
+Return valid JSON only.
+""".strip()
+
+    user_prompt = f"""
+Current topic:
+{title}
+
+Source hook:
+{source_hook}
+
+Visual hook:
+{visual_hook}
+
+Visual concept:
+{visual_concept}
+
+Reel hook:
+{reel_hook}
+
+Shot list:
+{shot_list}
+
+Existing style rules / color palette:
+{style_rules}
+
+Create six scene-specific Krea image directions in this order:
+1. frame_01_start — opening color/surface or strongest abstract visual hook.
+2. frame_02_color_code — graphic color/textile/ornament or second visual argument.
+3. frame_03_object_code — symbolic object still life connected to the personality/code of the topic.
+4. frame_04_extra — secondary garment/material/archive detail; may be excluded later.
+5. frame_05_material_fragment — close-up material fragment, fold, surface, or texture memory.
+6. frame_06_final — quiet final abstract/color/surface frame, visually related to frame 1 but different.
+
+Return exactly this JSON schema:
+{{
+  "directions": [
+    {{"name": "frame_01_start", "direction": "English Krea prompt, one concrete scene"}},
+    {{"name": "frame_02_color_code", "direction": "English Krea prompt, one concrete scene"}},
+    {{"name": "frame_03_object_code", "direction": "English Krea prompt, one concrete scene"}},
+    {{"name": "frame_04_extra", "direction": "English Krea prompt, one concrete scene"}},
+    {{"name": "frame_05_material_fragment", "direction": "English Krea prompt, one concrete scene"}},
+    {{"name": "frame_06_final", "direction": "English Krea prompt, one concrete scene"}}
+  ]
+}}
+
+Important:
+- Each direction must be different.
+- Do not start directions with "Style rules".
+- Do not include multiple scenes in one direction.
+- Do not mention storyboard, collage, grid, panels, sequence, or contact sheet.
+""".strip()
+
+    message = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=2600,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    response_text = message.content[0].text
+    print("Claude scene directions raw response:")
+    print(response_text)
+
+    data = extract_json(response_text)
+    directions = data.get("directions")
+
+    if not isinstance(directions, list):
+        raise RuntimeError(f"Claude scene directions missing list: {data}")
+
+    cleaned: List[Dict[str, str]] = []
+
+    for idx, item in enumerate(directions[:6], start=1):
+        if not isinstance(item, dict):
+            continue
+
+        name = clean_krea_direction(str(item.get("name") or f"frame_{idx:02d}"))
+        direction = clean_krea_direction(str(item.get("direction") or ""))
+
+        if direction:
+            cleaned.append(
+                {
+                    "name": name or f"frame_{idx:02d}",
+                    "direction": direction,
+                }
+            )
+
+    validate_scene_directions(cleaned)
+
+    return cleaned[:6]
+
+
+def build_six_krea_directions(fields: Dict[str, Any]) -> List[Dict[str, str]]:
+    prompt_pack = safe_get(fields, "Krea Prompt Pack")
+    sections = extract_krea_prompt_sections(prompt_pack)
+
+    labelled_sections = [key for key in sections.keys() if key != "all"]
+
+    if len(labelled_sections) < 3:
+        print("Krea Prompt Pack has no usable scene labels. Generating scene-specific directions with Claude before Krea render.")
+        directions = generate_scene_directions_with_claude_from_fields(fields)
+        validate_scene_directions(directions)
+        return directions
 
     preferred_order = [
         ("frame_01_start", ["cover frame", "cover", "scene 1"]),
         ("frame_02_color_code", ["scene 1", "scene 2"]),
         ("frame_03_object_code", ["scene 2", "scene 3"]),
         ("frame_04_extra", ["scene 3", "scene 4"]),
-        ("frame_05_material_fragment", ["scene 4", "scene 3", "scene 2"]),
-        ("frame_06_final", ["final frame", "final", "scene 5", "scene 6"]),
+        ("frame_05_material_fragment", ["scene 4", "scene 5", "scene 3"]),
+        ("frame_06_final", ["final frame", "final", "scene 6", "scene 5"]),
     ]
 
-    fallback = sections.get("all") or "Minimal editorial fashion-media still life, negative space, controlled light, no people, no text."
-
+    ordered_section_values = [sections[key] for key in sections.keys() if key != "all"]
+    used_values: List[str] = []
     results: List[Dict[str, str]] = []
-
-    used_directions = []
 
     for name, labels in preferred_order:
         direction = ""
 
         for label in labels:
-            if sections.get(label):
-                direction = sections[label]
+            value = sections.get(label)
+            if value and value not in used_values:
+                direction = value
                 break
 
         if not direction:
-            # Try to use any unused section before falling back.
-            for section_label, section_value in sections.items():
-                if section_label == "all":
-                    continue
-                if section_value not in used_directions:
-                    direction = section_value
+            for value in ordered_section_values:
+                if value not in used_values:
+                    direction = value
                     break
 
-        if not direction:
-            direction = fallback
+        if direction:
+            used_values.append(direction)
+            results.append({"name": name, "direction": direction})
 
-        used_directions.append(direction)
+    if len(results) < 5:
+        print("Scene labels exist but are insufficient. Repairing with Claude scene directions.")
+        results = generate_scene_directions_with_claude_from_fields(fields)
 
-        results.append(
-            {
-                "name": name,
-                "direction": direction,
-            }
-        )
+    validate_scene_directions(results)
 
     return results[:6]
 
@@ -1112,9 +1306,9 @@ def build_reel_keyframe_prompts(fields: Dict[str, Any]) -> List[Dict[str, str]]:
     visual_hook = safe_get(fields, "Visual Hook")
     visual_concept = safe_get(fields, "Visual Concept")
     reel_hook = safe_get(fields, "Reel Hook")
-    krea_prompt_pack = safe_get(fields, "Krea Prompt Pack")
 
-    directions = build_six_krea_directions(krea_prompt_pack)
+    directions = build_six_krea_directions(fields)
+    validate_scene_directions(directions)
 
     shared_rules = f"""
 Create ONE single full-screen vertical photograph.
@@ -1195,14 +1389,10 @@ No sequence.
 No multiple scenes.
 """.strip()
 
-        prompts.append(
-            {
-                "name": name,
-                "prompt": prompt,
-            }
-        )
+        prompts.append({"name": name, "prompt": prompt})
 
     return prompts
+
 
 def process_reel_keyframes_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
