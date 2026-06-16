@@ -2562,7 +2562,7 @@ def build_ready_for_buffer_summary() -> str:
     lines.append("READY FOR BUFFER PACKAGE")
     lines.append("")
     lines.append("Files in GitHub Actions artifact:")
-    lines.append("- final_reel_text_v1.mp4")
+    lines.append("- final_reel_sound_v1.mp4")
     lines.append("- reel_cover_v1.png")
     lines.append("")
     lines.append("Artifact name:")
@@ -2581,12 +2581,224 @@ def build_ready_for_buffer_summary() -> str:
     lines.append("Manual publishing checklist:")
     lines.append("1. Open the GitHub run.")
     lines.append("2. Download artifact: visual-production-outputs.")
-    lines.append("3. Upload final_reel_text_v1.mp4 to Buffer / Instagram.")
+    lines.append("3. Upload final_reel_sound_v1.mp4 to Buffer / Instagram.")
     lines.append("4. Use reel_cover_v1.png as cover.")
     lines.append("5. Copy Final Reel Caption.")
     lines.append("6. After scheduling, set Visual Status = Sent to Buffer.")
 
-    return "\n".join(lines)        
+    return "\n".join(lines)
+def add_ambient_sound_to_reel(
+    input_video_path: str,
+    output_filename: str = "final_reel_sound_v1.mp4",
+) -> str:
+    output_dir = Path("outputs")
+    output_dir.mkdir(exist_ok=True)
+
+    output_path = output_dir / output_filename
+
+    # Synthetic subtle ambient:
+    # brown noise + very low sine drone, faded in/out.
+    # No voice, no melody, no beat.
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        input_video_path,
+
+        "-f",
+        "lavfi",
+        "-i",
+        "anoisesrc=color=brown:amplitude=0.035:duration=15",
+
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=92:sample_rate=44100:duration=15",
+
+        "-filter_complex",
+        (
+            "[1:a]lowpass=f=1200,highpass=f=90,volume=0.12[a1];"
+            "[2:a]volume=0.015[a2];"
+            "[a1][a2]amix=inputs=2:duration=shortest,"
+            "afade=t=in:st=0:d=1.2,"
+            "afade=t=out:st=13.5:d=1.5[aout]"
+        ),
+
+        "-map",
+        "0:v:0",
+
+        "-map",
+        "[aout]",
+
+        "-c:v",
+        "copy",
+
+        "-c:a",
+        "aac",
+
+        "-b:a",
+        "128k",
+
+        "-shortest",
+        str(output_path),
+    ]
+
+    print("Running ffmpeg ambient sound:")
+    print(" ".join(command))
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+    )
+
+    print("ffmpeg stdout:")
+    print(result.stdout)
+    print("ffmpeg stderr:")
+    print(result.stderr)
+
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg ambient sound failed with code {result.returncode}")
+
+    print("Final reel with ambient sound created:", output_path)
+
+    return str(output_path)
+
+
+def process_reel_sound_record(record: Dict[str, Any]) -> None:
+    record_id = record["id"]
+    fields = record.get("fields", {})
+
+    existing_links = safe_get(fields, "Output Links", "")
+    existing_notes = safe_get(fields, "Render Notes", "")
+
+    print("Reel Ambient Sound Mode detected.")
+    print("Record ID:", record_id)
+    print("Job Title:", safe_get(fields, "Job Title"))
+
+    try:
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_RENDERING,
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"Reel Ambient Sound Mode started at {now_iso()}",
+                ),
+            },
+        )
+
+        # Recreate final reel with text in the current runner
+        clips = extract_reel_motion_clip_urls(existing_links)
+
+        local_clip_paths = []
+
+        for item in clips:
+            index = int(item["index"])
+            name = item["name"]
+            url = item["url"]
+
+            local_path = download_motion_clip(
+                video_url=url,
+                filename=f"sound_source_motion_clip_{index:02d}_{name}.mp4",
+            )
+
+            local_clip_paths.append(local_path)
+
+        final_reel_path = assemble_reel_with_ffmpeg(
+            clip_paths=local_clip_paths,
+            output_filename="final_reel_v1_for_sound.mp4",
+        )
+
+        overlay_texts = parse_on_screen_texts(fields, count=3)
+
+        final_text_reel_path = add_on_screen_text_to_reel(
+            input_video_path=final_reel_path,
+            overlay_texts=overlay_texts,
+            output_filename="final_reel_text_v1_for_sound.mp4",
+        )
+
+        final_sound_reel_path = add_ambient_sound_to_reel(
+            input_video_path=final_text_reel_path,
+            output_filename="final_reel_sound_v1.mp4",
+        )
+
+        reel_cover_title = get_reel_cover_title(fields, overlay_texts)
+
+        reel_cover_path = create_reel_cover_from_keyframe(
+            output_links=existing_links,
+            title=reel_cover_title,
+            output_filename="reel_cover_v1.png",
+        )
+
+        output_lines = []
+
+        if existing_links.strip():
+            output_lines.append(existing_links.strip())
+            output_lines.append("")
+            output_lines.append("---")
+            output_lines.append("")
+
+        output_lines.append("Final reel with sound generated:")
+        output_lines.append(f"Local file: {final_sound_reel_path}")
+        output_lines.append("")
+        output_lines.append("Reel cover generated:")
+        output_lines.append(f"Local file: {reel_cover_path}")
+        output_lines.append("")
+        output_lines.append("Sound style:")
+        output_lines.append("Subtle ambient room tone + low drone. No voice. No beat.")
+        output_lines.append("")
+        output_lines.append("Artifact: visual-production-outputs")
+        output_lines.append(f"Generated at: {now_iso()}")
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_NEEDS_REVIEW,
+                "Output Links": "\n".join(output_lines).strip(),
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"""
+Reel Ambient Sound Mode completed.
+
+Created final_reel_sound_v1.mp4.
+Added subtle ambient sound.
+No voiceover.
+No music track.
+Status moved to Needs Visual Review.
+
+Generated at:
+{now_iso()}
+""",
+                ),
+            },
+        )
+
+        print("Done. Final reel with ambient sound generated and moved to Needs Visual Review.")
+
+    except Exception as exc:
+        print("Reel Ambient Sound Mode failed:", repr(exc))
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_ERROR,
+                "Render Notes": append_note(
+                    existing_notes,
+                    f"""
+Reel Ambient Sound Mode failed.
+
+Error:
+{repr(exc)}
+
+Failed at:
+{now_iso()}
+""",
+                ),
+            },
+        )
+
+        raise    
 def process_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record["fields"]
@@ -2614,8 +2826,12 @@ def process_record(record: Dict[str, Any]) -> None:
                 print("Ready for Buffer package already generated. Skipping.")
                 return
 
-            if "Final reel with text generated" in output_links:
+            if "Final reel with sound generated" in output_links:
                 process_reel_caption_record(record)
+                return
+
+            if "Final reel with text generated" in output_links:
+                process_reel_sound_record(record)
                 return
 
             if "Final reel assembled" in output_links:
