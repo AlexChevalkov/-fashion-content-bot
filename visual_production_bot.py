@@ -970,9 +970,12 @@ def download_reel_image(image_url: str, filename: str) -> str:
 
 def build_reel_keyframe_prompts(fields: Dict[str, Any]) -> list[Dict[str, str]]:
     title = safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title")
+    source_hook = safe_get(fields, "Source Hook")
     visual_hook = safe_get(fields, "Visual Hook")
     visual_concept = safe_get(fields, "Visual Concept")
     reel_hook = safe_get(fields, "Reel Hook")
+    krea_prompt_pack = safe_get(fields, "Krea Prompt Pack")
+    shot_list = safe_get(fields, "Shot List")
 
     shared_rules = f"""
 Create ONE single full-screen vertical photograph.
@@ -987,7 +990,7 @@ This is not a set of images.
 The entire 9:16 canvas must be one continuous photographic image from top to bottom.
 One camera angle only.
 One composition only.
-One visual subject only.
+One visual subject or one visual situation only.
 No horizontal strips.
 No panels.
 No grid.
@@ -995,26 +998,42 @@ No split screen.
 No multiple moments.
 No multiple scenes inside the same image.
 
-Editorial fashion still life.
+Editorial fashion-media visual.
 Quiet luxury.
-Cold diffused light.
+Visual intelligence.
+Negative space.
+Controlled composition.
+Cold or restrained light.
 Matte textures.
-Stone, plaster, linen, paper, leather.
-Large negative space.
-Premium magazine image.
 No text inside the image.
 No letters.
 No logos.
-No people.
-No hands.
-No model.
+No fake brand names.
+No people unless the concept absolutely requires it.
+No hands unless the concept absolutely requires it.
 No product catalogue feeling.
 No advertising layout.
 
-Topic: {title}
-Visual idea: {visual_hook}
-Concept: {visual_concept}
-Opening thought: {reel_hook}
+Current topic:
+{title}
+
+Source hook:
+{source_hook}
+
+Visual hook:
+{visual_hook}
+
+Visual concept:
+{visual_concept}
+
+Reel hook:
+{reel_hook}
+
+Shot list:
+{shot_list}
+
+Krea style direction:
+{krea_prompt_pack}
 """.strip()
 
     return [
@@ -1023,21 +1042,20 @@ Opening thought: {reel_hook}
             "prompt": f"""
 {shared_rules}
 
-Make a single vertical editorial photograph of one small beige leather handbag placed far away in a large empty studio space.
+START IMAGE:
+Create the opening visual for this specific topic.
 
-The handbag is centered horizontally, low in the frame.
-Most of the image is empty cold grey space.
-Soft background gradient.
-No other objects.
-No fabric.
-No glove.
-No detail shots.
-No second image.
-No panels.
+The image must express the main idea of the current record, not a generic luxury object.
+Use one clear symbolic scene or object related to the visual concept.
+Large empty space.
+Strong editorial restraint.
+A feeling of distance, intelligence and visual control.
+
+One continuous vertical photograph.
 No collage.
-
-The feeling: distance, silence, desire, control.
-The image must look like one premium fashion magazine still life.
+No panels.
+No sequence.
+No multiple scenes.
 """.strip(),
         },
         {
@@ -1045,24 +1063,18 @@ The image must look like one premium fashion magazine still life.
             "prompt": f"""
 {shared_rules}
 
-Make a single vertical editorial photograph of one close-up detail of the same beige leather handbag.
+MIDDLE IMAGE:
+Create the second visual for this specific topic.
 
-Only one continuous macro composition:
-a leather edge, a clasp, stitching, or a metal ring.
-The detail occupies the lower third of the image.
-The upper two thirds are clean empty negative space.
-Cold light.
-Sharp leather texture.
-Deep controlled shadow.
+Make it closer, more analytical, more tactile or more conceptual than the opening image.
+Use material, framing, light, surface, shadow, color or composition to develop the idea.
+It should feel like the visual argument is becoming sharper.
 
-No other objects.
-No fabric.
-No glove.
-No multiple details.
-No panels.
+One continuous vertical photograph.
 No collage.
-No storyboard.
-No horizontal strips.
+No panels.
+No sequence.
+No multiple scenes.
 """.strip(),
         },
         {
@@ -1070,27 +1082,22 @@ No horizontal strips.
             "prompt": f"""
 {shared_rules}
 
-Make a single vertical editorial photograph of one beige leather handbag placed almost at the edge of a pale stone surface.
+FINAL IMAGE:
+Create the final visual for this specific topic.
 
-The bag is partly visible, not centered.
-Most of the image is empty stone surface and cold light.
-Very restrained.
-Very quiet.
-Editorial final frame feeling.
+It should feel like a quiet conclusion.
+More empty space than information.
+A controlled, intelligent, editorial final frame.
+The image should leave an aftertaste, not explain everything literally.
 
-One object only.
-One continuous photograph.
-No fabric.
-No glove.
-No multiple shots.
-No panels.
+One continuous vertical photograph.
 No collage.
+No panels.
 No storyboard.
-No horizontal strips.
+No multiple images inside the frame.
 """.strip(),
         },
     ]
-
 def process_reel_keyframes_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record.get("fields", {})
