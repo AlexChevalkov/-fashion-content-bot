@@ -31,6 +31,8 @@ AIRTABLE_VIEW_NAME = os.environ.get("AIRTABLE_VIEW_NAME", "Queued Visual Jobs")
 
 BRAND_NAME = os.environ.get("BRAND_NAME", "SV FASHION MEDIA")
 INSTAGRAM_HANDLE = os.environ.get("INSTAGRAM_HANDLE", "@sv_fashionacademy")
+GITHUB_RUN_URL = os.environ.get("GITHUB_RUN_URL", "")
+GITHUB_RUN_ID = os.environ.get("GITHUB_RUN_ID", "")
 
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "outputs"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -2499,6 +2501,9 @@ def process_reel_caption_record(record: Dict[str, Any]) -> None:
 
         output_lines.append("Final reel caption generated:")
         output_lines.append("Stored in Airtable field: Final Reel Caption")
+        output_lines.append("")
+        output_lines.append(build_ready_for_buffer_summary())
+        output_lines.append("")
         output_lines.append(f"Generated at: {now_iso()}")
 
         update_airtable_record(
@@ -2550,7 +2555,38 @@ Failed at:
             },
         )
 
-        raise    
+        raise
+def build_ready_for_buffer_summary() -> str:
+    lines = []
+
+    lines.append("READY FOR BUFFER PACKAGE")
+    lines.append("")
+    lines.append("Files in GitHub Actions artifact:")
+    lines.append("- final_reel_text_v1.mp4")
+    lines.append("- reel_cover_v1.png")
+    lines.append("")
+    lines.append("Artifact name:")
+    lines.append("visual-production-outputs")
+    lines.append("")
+
+    if GITHUB_RUN_URL:
+        lines.append("GitHub run:")
+        lines.append(GITHUB_RUN_URL)
+        lines.append("")
+
+    if GITHUB_RUN_ID:
+        lines.append(f"GitHub run id: {GITHUB_RUN_ID}")
+        lines.append("")
+
+    lines.append("Manual publishing checklist:")
+    lines.append("1. Open the GitHub run.")
+    lines.append("2. Download artifact: visual-production-outputs.")
+    lines.append("3. Upload final_reel_text_v1.mp4 to Buffer / Instagram.")
+    lines.append("4. Use reel_cover_v1.png as cover.")
+    lines.append("5. Copy Final Reel Caption.")
+    lines.append("6. After scheduling, set Visual Status = Sent to Buffer.")
+
+    return "\n".join(lines)        
 def process_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record["fields"]
