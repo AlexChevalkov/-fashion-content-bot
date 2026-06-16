@@ -28,6 +28,7 @@ ANTHROPIC_MODEL = (os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6").str
 
 AIRTABLE_TABLE_NAME = os.environ.get("AIRTABLE_TABLE_NAME", "Visual Jobs")
 AIRTABLE_VIEW_NAME = os.environ.get("AIRTABLE_VIEW_NAME", "Queued Visual Jobs")
+AIRTABLE_CONTENT_TABLE_NAME = os.environ.get("AIRTABLE_CONTENT_TABLE_NAME", "Content Inbox")
 
 BRAND_NAME = os.environ.get("BRAND_NAME", "SV FASHION MEDIA")
 INSTAGRAM_HANDLE = os.environ.get("INSTAGRAM_HANDLE", "@sv_fashionacademy")
@@ -2799,7 +2800,210 @@ Failed at:
             },
         )
 
-        raise    
+        raise
+def airtable_table_url(table_name: str) -> str:
+    return f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{requests.utils.quote(table_name, safe='')}"
+
+
+def create_airtable_record_in_table(table_name: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    url = airtable_table_url(table_name)
+
+    payload = {
+        "fields": fields,
+        "typecast": True,
+    }
+
+    response = requests.post(
+        url,
+        headers=airtable_headers(),
+        json=payload,
+        timeout=30,
+    )
+
+    print(f"Create record in {table_name} status:", response.status_code)
+    print(f"Create record in {table_name} preview:", shorten(response.text, 1200))
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+def update_airtable_record_in_table(table_name: str, record_id: str, fields: Dict[str, Any]) -> None:
+    url = f"{airtable_table_url(table_name)}/{record_id}"
+
+    payload = {
+        "fields": fields,
+        "typecast": True,
+    }
+
+    response = requests.patch(
+        url,
+        headers=airtable_headers(),
+        json=payload,
+        timeout=30,
+    )
+
+    print(f"Update record in {table_name} status:", response.status_code)
+    print(f"Update record in {table_name} preview:", shorten(response.text, 1200))
+
+    response.raise_for_status()
+
+
+def get_approved_content_items(limit: int = 5) -> List[Dict[str, Any]]:
+    url = airtable_table_url(AIRTABLE_CONTENT_TABLE_NAME)
+
+    params = {
+        "maxRecords": limit,
+        "filterByFormula": "{Status}='Approved'",
+    }
+
+    response = requests.get(
+        url,
+        headers=airtable_headers(),
+        params=params,
+        timeout=30,
+    )
+
+    print("Read approved Content Inbox status:", response.status_code)
+    print("Read approved Content Inbox preview:", shorten(response.text, 1200))
+
+    response.raise_for_status()
+
+    return response.json().get("records", [])
+
+
+def visual_job_exists_for_content(content_record_id: str) -> bool:
+    url = airtable_table_url(AIRTABLE_TABLE_NAME)
+
+    formula = f"{{Source Content ID}}='{content_record_id}'"
+
+    params = {
+        "maxRecords": 1,
+        "filterByFormula": formula,
+    }
+
+    response = requests.get(
+        url,
+        headers=airtable_headers(),
+        params=params,
+        timeout=30,
+    )
+
+    print("Check existing Visual Job status:", response.status_code)
+    print("Check existing Visual Job preview:", shorten(response.text, 800))
+
+    response.raise_for_status()
+
+    records = response.json().get("records", [])
+
+    return bool(records)
+
+
+def map_content_format_to_visual_format(raw_format: str) -> str:
+    value = (raw_format or "").strip().lower()
+
+    if "reel" in value:
+        return "Reel"
+
+    if "carousel" in value:
+        return "Carousel"
+
+    if "quote" in value:
+        return "Carousel"
+
+    if "story" in value:
+        return "Carousel"
+
+    if "single" in value:
+        return "Carousel"
+
+    return "Reel"
+
+
+def create_visual_job_from_content(content_record: Dict[str, Any]) -> Dict[str, Any]:
+    content_id = content_record["id"]
+    fields = content_record.get("fields", {})
+
+    title = (
+        safe_get(fields, "Visual Headline")
+        or safe_get(fields, "Title")
+        or safe_get(fields, "HOOK")
+        or "Visual Job"
+    )
+
+    raw_text = safe_get(fields, "Raw Text")
+    final_caption = safe_get(fields, "Final Caption")
+    source_hook = safe_get(fields, "HOOK")
+    source_url = safe_get(fields, "Source URL")
+    raw_format = safe_get(fields, "Format")
+
+    visual_format = map_content_format_to_visual_format(raw_format)
+
+    visual_fields = {
+        "Job Title": f"Visual: {title[:80]}",
+        "Source Content ID": content_id,
+        "Source Post Title": title,
+        "Source Raw Text": raw_text,
+        "Source Final Caption": final_caption,
+        "Source Hook": source_hook,
+        "Source URL": source_url,
+        "Format": visual_format,
+        "Chosen Format": visual_format,
+        "Visual Status": STATUS_QUEUED,
+    }
+
+    created = create_airtable_record_in_table(
+        AIRTABLE_TABLE_NAME,
+        visual_fields,
+    )
+
+    visual_job_id = created.get("id", "")
+
+    try:
+        update_airtable_record_in_table(
+            AIRTABLE_CONTENT_TABLE_NAME,
+            content_id,
+            {
+                "Visual Job Created": True,
+                "Visual Job ID": visual_job_id,
+            },
+        )
+    except Exception as exc:
+        print("Warning: Visual Job was created, but Content Inbox could not be updated.")
+        print(repr(exc))
+
+    return created
+
+
+def transfer_approved_content_to_visual_jobs(limit: int = 5) -> Dict[str, Any] | None:
+    print("Checking Content Inbox for Approved items...")
+
+    content_items = get_approved_content_items(limit=limit)
+
+    if not content_items:
+        print("No approved Content Inbox items found.")
+        return None
+
+    for content_record in content_items:
+        content_id = content_record["id"]
+        fields = content_record.get("fields", {})
+        title = safe_get(fields, "Title") or safe_get(fields, "Visual Headline")
+
+        print("Approved content found:", content_id, title)
+
+        if visual_job_exists_for_content(content_id):
+            print("Visual Job already exists for this content. Skipping:", content_id)
+            continue
+
+        created = create_visual_job_from_content(content_record)
+
+        print("Created Visual Job from Content Inbox:", created.get("id"))
+
+        return created
+
+    print("No new approved Content Inbox item available for transfer.")
+
+    return None        
 def process_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record["fields"]
@@ -2950,13 +3154,25 @@ def main() -> None:
 
     records = get_queued_visual_jobs(limit=1)
 
-    if not records:
-        print("No queued visual jobs found.")
+    if records:
+        for record in records:
+            process_record(record)
+
+        print("Visual Production Bot v2 finished.")
         return
 
-    for record in records:
-        process_record(record)
+    print("No queued visual jobs found.")
+    print("Trying to transfer Approved item from Content Inbox...")
 
+    created_visual_job = transfer_approved_content_to_visual_jobs(limit=5)
+
+    if created_visual_job:
+        print("A new Visual Job was created and placed in Queue.")
+        print("Run the workflow again to start visual production.")
+        print("Created Visual Job ID:", created_visual_job.get("id"))
+        return
+
+    print("No work found in Visual Jobs or Content Inbox.")
     print("Visual Production Bot v2 finished.")
 
 
