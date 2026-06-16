@@ -1512,12 +1512,12 @@ def process_record(record: Dict[str, Any]) -> None:
     # Reel-only branch:
     # Queued          -> generate Reel Brief
     # Approved Visual -> generate 9:16 keyframes
-if "reel" in format_value and "carousel" not in format_value:
+    if "reel" in format_value and "carousel" not in format_value:
     output_links = safe_get(fields, "Output Links", "")
 
     if status_value == STATUS_QUEUED:
-        process_reel_brief_record(record)
-        return
+    process_reel_brief_record(record)
+    return
 
     if status_value == STATUS_APPROVED:
         if "Reel motion clip generated" in output_links:
