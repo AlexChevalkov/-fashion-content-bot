@@ -1882,17 +1882,103 @@ def wrap_overlay_text(text: str, width: int = 30, max_lines: int = 2) -> str:
     return "\n".join(wrapped)
 
 
+def normalize_field_name(name: str) -> str:
+    name = str(name or "").strip().lower()
+
+    # protect against accidental Cyrillic letters in field names
+    name = name.replace("о", "o")
+    name = name.replace("е", "e")
+    name = name.replace("а", "a")
+
+    name = re.sub(r"[^a-z0-9а-яё]+", "", name)
+
+    return name
+
+
+def get_field_fuzzy(fields: Dict[str, Any], possible_names: List[str], default: str = "") -> str:
+    wanted = {normalize_field_name(name) for name in possible_names}
+
+    for actual_name, value in fields.items():
+        if normalize_field_name(actual_name) in wanted:
+            if value is None:
+                return default
+            if isinstance(value, list):
+                return ", ".join(str(x) for x in value if x is not None)
+            return str(value)
+
+    return default
+
+
 def parse_on_screen_texts(fields: Dict[str, Any], count: int = 3) -> List[str]:
+    overlay_1 = get_field_fuzzy(
+        fields,
+        [
+            "Overlay 1",
+            "Overlay1",
+            "Overlay 01",
+            "Overlay_1",
+            "Text Overlay 1",
+            "Reel Overlay 1",
+        ],
+    )
+
+    overlay_2 = get_field_fuzzy(
+        fields,
+        [
+            "Overlay 2",
+            "Overlay2",
+            "Overlay 02",
+            "Overlay_2",
+            "Text Overlay 2",
+            "Reel Overlay 2",
+        ],
+    )
+
+    overlay_3 = get_field_fuzzy(
+        fields,
+        [
+            "Overlay 3",
+            "Overlay3",
+            "Overlay 03",
+            "Overlay_3",
+            "Text Overlay 3",
+            "Reel Overlay 3",
+        ],
+    )
+
+    print("Available Airtable fields:")
+    print(", ".join(sorted(fields.keys())))
+
+    print("Resolved overlay fields:")
+    print("Overlay 1:", repr(overlay_1))
+    print("Overlay 2:", repr(overlay_2))
+    print("Overlay 3:", repr(overlay_3))
+
+    explicit_overlays = [overlay_1, overlay_2, overlay_3]
+
+    final_texts: List[str] = []
+
+    # Priority 1: explicit Overlay 1 / 2 / 3 fields
+    for overlay in explicit_overlays:
+        overlay = clean_overlay_line(overlay)
+
+        if overlay:
+            wrapped = wrap_overlay_text(overlay, width=30, max_lines=2)
+
+            if wrapped and wrapped not in final_texts:
+                final_texts.append(wrapped)
+
+        if len(final_texts) >= count:
+            return final_texts[:count]
+
+    # Priority 2: fallback to old On-screen Text logic
     raw = safe_get(fields, "On-screen Text", "")
     reel_hook = safe_get(fields, "Reel Hook", "")
 
     candidates: List[str] = []
 
     if raw.strip():
-        # Important: Claude often separates reel text with pipes or semicolons:
-        # "0-3 sec: ... | 3-8 sec: ..."
         normalized = raw.replace("|", "\n").replace(";", "\n")
-
         parts = re.split(r"[\n\r]+", normalized)
 
         for part in parts:
@@ -1907,7 +1993,7 @@ def parse_on_screen_texts(fields: Dict[str, Any], count: int = 3) -> List[str]:
 
     fallback = [
         "Luxury не просит тебя купить.",
-        "Они создают пространство.",
+        "Оно создаёт пространство.",
         "Дистанция и есть продукт.",
     ]
 
@@ -1915,8 +2001,6 @@ def parse_on_screen_texts(fields: Dict[str, Any], count: int = 3) -> List[str]:
         if len(candidates) >= count:
             break
         candidates.append(item)
-
-    final_texts: List[str] = []
 
     for text in candidates:
         text = wrap_overlay_text(text, width=30, max_lines=2)
@@ -1928,7 +2012,6 @@ def parse_on_screen_texts(fields: Dict[str, Any], count: int = 3) -> List[str]:
             break
 
     return final_texts[:count]
-
 
 def write_drawtext_file(text: str, filename: str) -> str:
     output_dir = Path("outputs")
