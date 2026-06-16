@@ -1234,31 +1234,72 @@ def extract_first_reel_keyframe_url(output_links: str) -> str:
 def build_reel_motion_prompt(fields: Dict[str, Any]) -> str:
     title = safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title")
     reel_hook = safe_get(fields, "Reel Hook")
-    reel_script = safe_get(fields, "Reel Script")
-    shot_list = safe_get(fields, "Shot List")
     visual_concept = safe_get(fields, "Visual Concept")
 
     return f"""
 Create a 5 second vertical fashion editorial video from the provided start image.
 
-The video should feel like SV Fashion Media:
-quiet luxury, editorial intelligence, distance, restraint, negative space.
+ABSOLUTE RULE:
+The provided image is the locked visual reference.
+Do not redesign it.
+Do not reinterpret it.
+Do not change the object.
+Do not change the composition.
+Do not change the material.
+Do not change the shape.
+Do not add new objects.
 
-Movement:
+The video must preserve:
+- the exact handbag / object identity
+- the same silhouette
+- the same leather texture
+- the same stitching
+- the same metal hardware
+- the same color palette
+- the same background
+- the same negative space
+- the same lighting mood
+- the same editorial still-life atmosphere
+
+Allowed movement only:
 - extremely slow camera push-in
-- subtle parallax
-- almost still
-- no fast cuts
-- no TikTok style
-- no commercial advertising energy
-- no added text
-- no logos
-- no new objects
+- very subtle parallax
+- barely visible breathing in the light
+- slight atmospheric depth
+- tiny shadow movement
+- almost still image
+
+Forbidden:
+- no morphing
+- no transformation
+- no object deformation
+- no new fabric
+- no extra folds
+- no additional accessories
+- no new handbag parts
 - no people
 - no hands
-- no morphing of the object
-- preserve the object identity and composition
-- preserve the cold light and premium editorial mood
+- no model
+- no logo
+- no text
+- no letters
+- no cuts
+- no montage
+- no fast movement
+- no TikTok style
+- no commercial advertising energy
+- no product demo feeling
+- no zoom jump
+- no camera shake
+- no fantasy effect
+
+The video should feel like:
+a moving fashion magazine still life,
+quiet luxury,
+editorial intelligence,
+distance,
+restraint,
+negative space.
 
 Topic:
 {title}
@@ -1269,13 +1310,9 @@ Visual concept:
 Reel hook:
 {reel_hook}
 
-Reel script:
-{reel_script}
-
-Shot list:
-{shot_list}
-
-The result should feel like a short moving magazine image.
+Final direction:
+Make the image feel alive only through camera and atmosphere.
+The object itself must remain stable and unchanged.
 """.strip()
 
 
