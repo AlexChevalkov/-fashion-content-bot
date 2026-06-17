@@ -2029,47 +2029,90 @@ def get_field_fuzzy(fields: Dict[str, Any], possible_names: List[str], default: 
     return default
 
 
-def parse_on_screen_texts(fields: Dict[str, Any], expected_count: int = 3) -> List[str]:
-    expected_count = max(1, int(expected_count or 1))
+def split_overlay_text_blocks(raw_text: str) -> List[str]:
+    raw_text = (raw_text or "").replace("\r\n", "\n").strip()
 
+    if not raw_text:
+        return []
+
+    # Main separator: ---
+    if re.search(r"(?m)^\s*-{3,}\s*$", raw_text):
+        chunks = re.split(r"(?m)^\s*-{3,}\s*$", raw_text)
+    else:
+        # Fallback: empty line separates text blocks.
+        chunks = re.split(r"\n\s*\n", raw_text)
+
+    blocks: List[str] = []
+
+    for chunk in chunks:
+        lines: List[str] = []
+
+        for raw_line in chunk.splitlines():
+            line = raw_line.strip()
+
+            if not line:
+                continue
+
+            # Remove bullets and numbering.
+            line = re.sub(r"^\s*[-•*]\s*", "", line)
+            line = re.sub(r"^\s*(?:Overlay\s*)?\d+\s*[:.)-]\s*", "", line, flags=re.I)
+
+            if line:
+                lines.append(line)
+
+        text = "\n".join(lines).strip()
+
+        if text:
+            blocks.append(text)
+
+    return blocks
+
+
+def collect_overlay_texts(fields: Dict[str, Any]) -> List[str]:
     overlay_texts: List[str] = []
 
-    # 1. First priority: explicit Airtable overlay fields.
-    for idx in range(1, expected_count + 1):
-        value = safe_get(fields, f"Overlay {idx}", "").strip()
-        if value:
-            overlay_texts.append(value)
+    # 1. Main universal field.
+    overlay_script = safe_get(fields, "Overlay Script", "").strip()
 
-    # 2. Second priority: On-screen Text field.
-    # No hardcoded fallback phrases. No old content.
+    if overlay_script:
+        overlay_texts = split_overlay_text_blocks(overlay_script)
+
+    # 2. Fallback: existing On-screen Text field.
     if not overlay_texts:
-        raw = safe_get(fields, "On-screen Text", "").strip()
-        parts: List[str] = []
+        on_screen_text = safe_get(fields, "On-screen Text", "").strip()
 
-        if raw:
-            for raw_line in raw.splitlines():
-                line = raw_line.strip()
-                if not line:
-                    continue
+        if on_screen_text:
+            overlay_texts = split_overlay_text_blocks(on_screen_text)
 
-                # Remove bullets / numbering.
-                line = re.sub(r"^\s*[-•*]\s*", "", line)
-                line = re.sub(r"^\s*\d+[.)]\s*", "", line)
+    # 3. Fallback: old Overlay 1 / Overlay 2 / Overlay 3 / ... fields.
+    # This is dynamic: it supports Overlay 1 through Overlay 20 without changing code.
+    if not overlay_texts:
+        numbered_overlays = []
 
-                # Split compact slash-separated copy.
-                if " / " in line:
-                    pieces = [x.strip() for x in line.split(" / ") if x.strip()]
-                    parts.extend(pieces)
-                else:
-                    parts.append(line)
+        for key, value in fields.items():
+            match = re.fullmatch(r"Overlay\s+(\d+)", str(key).strip(), flags=re.I)
 
-        overlay_texts = parts
+            if not match:
+                continue
 
-    # 3. Last fallback: use current record hooks only.
-    # Still no old hardcoded phrases.
+            text = str(value or "").strip()
+
+            if not text:
+                continue
+
+            index = int(match.group(1))
+            numbered_overlays.append((index, text))
+
+        numbered_overlays.sort(key=lambda item: item[0])
+
+        overlay_texts = [text for _, text in numbered_overlays]
+
+    # 4. Last fallback: current record hooks only.
+    # No old hardcoded phrases. No previous reel topics.
     if not overlay_texts:
         for key in ["Reel Hook", "Visual Hook", "Source Hook", "Source Post Title", "Job Title"]:
             value = safe_get(fields, key, "").strip()
+
             if value:
                 overlay_texts.append(value)
                 break
@@ -2077,58 +2120,35 @@ def parse_on_screen_texts(fields: Dict[str, Any], expected_count: int = 3) -> Li
     if not overlay_texts:
         overlay_texts = ["EDITORIAL NOTE"]
 
-    # Trim or pad to the real number of clips.
-    overlay_texts = overlay_texts[:expected_count]
+    # Remove exact duplicates.
+    clean_texts: List[str] = []
+    seen = set()
 
-    while len(overlay_texts) < expected_count:
-        overlay_texts.append(overlay_texts[-1])
+    for text in overlay_texts:
+        text = str(text or "").strip()
+
+        if not text:
+            continue
+
+        key = re.sub(r"\s+", " ", text).lower()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        clean_texts.append(text)
 
     print("Overlay texts:")
-    for idx, text in enumerate(overlay_texts, start=1):
+    for idx, text in enumerate(clean_texts, start=1):
         print(f"{idx}: {text}")
 
-    return overlay_texts
-    # Priority 2: fallback to old On-screen Text logic
-    raw = safe_get(fields, "On-screen Text", "")
-    reel_hook = safe_get(fields, "Reel Hook", "")
+    return clean_texts
 
-    candidates: List[str] = []
 
-    if raw.strip():
-        normalized = raw.replace("|", "\n").replace(";", "\n")
-        parts = re.split(r"[\n\r]+", normalized)
-
-        for part in parts:
-            part = clean_overlay_line(part)
-            if part:
-                candidates.append(part)
-
-    if reel_hook:
-        clean_hook = clean_overlay_line(reel_hook)
-        if clean_hook and clean_hook not in candidates:
-            candidates.insert(0, clean_hook)
-
-    fallback = [
-        "Luxury не просит тебя купить.",
-        "Оно создаёт пространство.",
-        "Дистанция и есть продукт.",
-    ]
-
-    for item in fallback:
-        if len(candidates) >= count:
-            break
-        candidates.append(item)
-
-    for text in candidates:
-        text = wrap_overlay_text(text, width=30, max_lines=2)
-
-        if text and text not in final_texts:
-            final_texts.append(text)
-
-        if len(final_texts) >= count:
-            break
-
-    return final_texts[:count]
+# Backward-compatible wrapper.
+# Old code may still call parse_on_screen_texts(...), but now it uses the universal logic.
+def parse_on_screen_texts(fields: Dict[str, Any], expected_count: int = 0) -> List[str]:
+    return collect_overlay_texts(fields)
 
 def write_drawtext_file(text: str, filename: str) -> str:
     output_dir = Path("outputs")
@@ -2148,16 +2168,66 @@ def ffmpeg_escape_text(value: str) -> str:
     return value
 
 
+def get_video_duration_seconds(input_video_path: str) -> float:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(input_video_path),
+    ]
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print("Could not read video duration with ffprobe.")
+        print(result.stderr)
+        return 0.0
+
+    try:
+        return float(result.stdout.strip())
+    except Exception:
+        return 0.0
+
+
+def choose_reel_overlay_font_size(text: str) -> int:
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    longest_line = max((len(line) for line in lines), default=len(str(text or "")))
+
+    if longest_line <= 18:
+        return 58
+
+    if longest_line <= 26:
+        return 52
+
+    if longest_line <= 34:
+        return 46
+
+    return 40
+
+
 def add_on_screen_text_to_reel(
     input_video_path: str,
     overlay_texts: List[str],
     output_filename: str = "final_reel_text_v1.mp4",
-    segment_duration_seconds: float = 5.0,
+    segment_duration_seconds: float = 0.0,
 ) -> str:
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
 
     output_path = output_dir / output_filename
+
+    overlay_texts = [str(text or "").strip() for text in overlay_texts if str(text or "").strip()]
+
+    if not overlay_texts:
+        overlay_texts = ["EDITORIAL NOTE"]
 
     text_files = []
 
@@ -2171,35 +2241,59 @@ def add_on_screen_text_to_reel(
 
     total_segments = max(1, len(text_files))
 
+    video_duration = get_video_duration_seconds(input_video_path)
+
+    if video_duration <= 0:
+        video_duration = total_segments * 5.0
+
+    # Universal rule:
+    # 2 texts = each gets half of the reel.
+    # 5 texts = each gets one fifth.
+    # 7 texts = each gets one seventh.
+    segment_duration = video_duration / total_segments
+
+    font_regular = globals().get(
+        "FONT_REGULAR",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+    )
+
+    font_bold = globals().get(
+        "FONT_BOLD",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+    )
+
+    brand_name = globals().get("BRAND_NAME", "SV FASHION MEDIA")
+    instagram_handle = globals().get("INSTAGRAM_HANDLE", "@sv_fashionacademy")
+
     filters = []
 
-    # Brand header — same logic as carousel.
+    # Brand header
     filters.append(
         "drawtext="
-        f"fontfile='{FONT_REGULAR}':"
-        f"text='{ffmpeg_escape_text(BRAND_NAME)}':"
+        f"fontfile='{font_regular}':"
+        f"text='{ffmpeg_escape_text(brand_name)}':"
         "x=80:"
         "y=70:"
         "fontsize=26:"
         "fontcolor=white@0.92"
     )
 
-    # Small underline under brand.
+    # Small brand underline
     filters.append(
         "drawbox="
         "x=80:"
         "y=125:"
-        "w=100:"
+        "w=120:"
         "h=2:"
-        "color=white@0.85:"
+        "color=white@0.82:"
         "t=fill"
     )
 
-    # Instagram handle.
+    # Instagram handle
     filters.append(
         "drawtext="
-        f"fontfile='{FONT_REGULAR}':"
-        f"text='{ffmpeg_escape_text(INSTAGRAM_HANDLE)}':"
+        f"fontfile='{font_regular}':"
+        f"text='{ffmpeg_escape_text(instagram_handle)}':"
         "x=80:"
         "y=h-95:"
         "fontsize=22:"
@@ -2207,15 +2301,21 @@ def add_on_screen_text_to_reel(
     )
 
     for idx, text_file in enumerate(text_files, start=1):
-        start = (idx - 1) * segment_duration_seconds
-        end = idx * segment_duration_seconds
+        start = (idx - 1) * segment_duration
+
+        if idx == total_segments:
+            end = video_duration + 0.25
+        else:
+            end = idx * segment_duration
 
         counter = f"{idx:02d}/{total_segments:02d}"
+        text = overlay_texts[idx - 1]
+        font_size = choose_reel_overlay_font_size(text)
 
-        # Counter top-right.
+        # Counter top-right
         filters.append(
             "drawtext="
-            f"fontfile='{FONT_REGULAR}':"
+            f"fontfile='{font_regular}':"
             f"text='{counter}':"
             f"enable='between(t,{start:.2f},{end:.2f})':"
             "x=w-tw-80:"
@@ -2224,20 +2324,20 @@ def add_on_screen_text_to_reel(
             "fontcolor=white@0.92"
         )
 
-        # Main editorial text block.
+        # Main editorial text block
         filters.append(
             "drawtext="
-            f"fontfile='{FONT_BOLD}':"
+            f"fontfile='{font_bold}':"
             f"textfile='{text_file}':"
             f"enable='between(t,{start:.2f},{end:.2f})':"
             "x=80:"
-            "y=h*0.62:"
-            "fontsize=58:"
+            "y=h*0.64:"
+            f"fontsize={font_size}:"
             "fontcolor=white:"
             "line_spacing=8:"
             "box=1:"
-            "boxcolor=black@0.22:"
-            "boxborderw=28"
+            "boxcolor=black@0.20:"
+            "boxborderw=24"
         )
 
     filter_chain = ",".join(filters)
@@ -2246,7 +2346,7 @@ def add_on_screen_text_to_reel(
         "ffmpeg",
         "-y",
         "-i",
-        input_video_path,
+        str(input_video_path),
         "-vf",
         filter_chain,
         "-map",
@@ -2334,10 +2434,7 @@ def process_reel_text_overlay_record(record: Dict[str, Any]) -> None:
 
         expected_overlay_count = len(local_clip_paths)
 
-        overlay_texts = parse_on_screen_texts(
-            fields,
-            expected_count=expected_overlay_count,
-        )
+        overlay_texts = collect_overlay_texts(fields)
 
         print("Overlay texts:")
         for idx, text in enumerate(overlay_texts, start=1):
