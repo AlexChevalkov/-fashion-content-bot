@@ -3174,7 +3174,12 @@ def process_reel_sound_record(record: Dict[str, Any]) -> None:
 
         reel_cover_path = create_reel_cover_from_keyframe(
             output_links=existing_links,
-            title=title,
+            title=(
+                safe_get(fields, "Reel Cover Title")
+                or safe_get(fields, "Source Post Title")
+                or safe_get(fields, "Job Title")
+                or "SV FASHION MEDIA"
+        ),
             fields=fields,
         )
 
