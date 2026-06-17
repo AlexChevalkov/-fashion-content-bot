@@ -62,6 +62,8 @@ STATUS_QUEUED = "Queued"
 STATUS_RENDERING = "In Production"
 STATUS_NEEDS_REVIEW = "Needs Visual Review"
 STATUS_APPROVED = "Approved Visual"
+STATUS_NEEDS_TEXT_REVIEW = "Needs Text Review"
+STATUS_APPROVED_TEXT = "Approved Text"
 STATUS_READY_FOR_BUFFER = "Ready for Buffer"
 STATUS_ERROR = "Failed"
 
@@ -187,7 +189,22 @@ def update_airtable_record(record_id: str, fields: Dict[str, Any]) -> None:
     print("Update Visual Job preview:", shorten(response.text, 1200))
     response.raise_for_status()
 
+def fetch_airtable_record(record_id: str) -> Dict[str, Any]:
+    table_name = requests.utils.quote(AIRTABLE_TABLE_NAME, safe="")
+    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{table_name}/{record_id}"
 
+    headers = {
+        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+    }
+
+    response = requests.get(url, headers=headers, timeout=60)
+
+    if response.status_code >= 300:
+        raise RuntimeError(
+            f"Airtable fetch failed: {response.status_code} {response.text}"
+        )
+
+    return response.json()
 def build_output_links_text(raw_items: List[Dict[str, str]], assembled_paths: List[str]) -> str:
     lines = []
     lines.append(f"Generated at: {now_iso()}")
@@ -3255,7 +3272,96 @@ Failed at:
             },
         )
 
-        raise    
+        raise 
+def process_reel_after_visual_approval(record: Dict[str, Any]) -> None:
+    record_id = record["id"]
+
+    try:
+        current_record = fetch_airtable_record(record_id)
+        output_links = safe_get(current_record.get("fields", {}), "Output Links", "")
+
+        if "Reel motion clips generated" not in output_links:
+            process_reel_motion_record(current_record)
+            current_record = fetch_airtable_record(record_id)
+            output_links = safe_get(current_record.get("fields", {}), "Output Links", "")
+
+        if "Final reel assembled" not in output_links:
+            process_reel_assembly_record(current_record)
+            current_record = fetch_airtable_record(record_id)
+            output_links = safe_get(current_record.get("fields", {}), "Output Links", "")
+
+        process_reel_text_overlay_record(current_record)
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_NEEDS_TEXT_REVIEW,
+                "Render Notes": (
+                    f"Auto pipeline after visual approval completed.\n"
+                    f"Motion, assembly and text preview generated.\n"
+                    f"Status moved to Needs Text Review.\n\n"
+                    f"Generated at:\n{now_iso()}"
+                ),
+            },
+        )
+
+    except Exception as error:
+        print("Auto visual approval pipeline failed:", repr(error))
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_ERROR,
+                "Render Notes": (
+                    f"Auto visual approval pipeline failed.\n\n"
+                    f"Error:\n{repr(error)}\n\n"
+                    f"Failed at:\n{now_iso()}"
+                ),
+            },
+        )
+        raise
+
+
+def process_reel_after_text_approval(record: Dict[str, Any]) -> None:
+    record_id = record["id"]
+
+    try:
+        current_record = fetch_airtable_record(record_id)
+
+        process_reel_text_overlay_record(current_record)
+
+        current_record = fetch_airtable_record(record_id)
+        process_reel_sound_record(current_record)
+
+        current_record = fetch_airtable_record(record_id)
+        process_reel_caption_record(current_record)
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_READY_FOR_BUFFER,
+                "Render Notes": (
+                    f"Auto pipeline after text approval completed.\n"
+                    f"Final text, ambient sound, cover and caption generated.\n"
+                    f"Status moved to Ready for Buffer.\n\n"
+                    f"Generated at:\n{now_iso()}"
+                ),
+            },
+        )
+
+    except Exception as error:
+        print("Auto text approval pipeline failed:", repr(error))
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_ERROR,
+                "Render Notes": (
+                    f"Auto text approval pipeline failed.\n\n"
+                    f"Error:\n{repr(error)}\n\n"
+                    f"Failed at:\n{now_iso()}"
+                ),
+            },
+        )
+        raise        
 def process_record(record: Dict[str, Any]) -> None:
     record_id = record["id"]
     fields = record["fields"]
@@ -3272,13 +3378,20 @@ def process_record(record: Dict[str, Any]) -> None:
     ).strip().lower()
 
     if "reel" in format_value and "carousel" not in format_value:
-        output_links = safe_get(fields, "Output Links", "")
-
         if status_value == STATUS_QUEUED:
             process_reel_brief_record(record)
             return
 
         if status_value == STATUS_APPROVED:
+            process_reel_after_visual_approval(record)
+            return
+
+        if status_value == STATUS_APPROVED_TEXT:
+            process_reel_after_text_approval(record)
+            return
+
+        print(f"Reel record skipped. Status: {status_value}")
+        return
             if "READY FOR BUFFER PACKAGE" in output_links:
                 print("Ready for Buffer package already generated. Skipping.")
                 return
