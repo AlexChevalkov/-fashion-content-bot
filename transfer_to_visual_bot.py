@@ -153,7 +153,6 @@ def build_visual_job_fields(content_record: dict, visual_schema: dict) -> dict:
         "Source URL": source_url,
         "Format": format_value,
         "Chosen Format": format_value,
-        "Visual Headline": visual_headline,
         "Visual Mode": "Hybrid",
         "Visual Status": "Queued",
         "Render Notes": (
