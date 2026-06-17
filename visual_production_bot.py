@@ -1765,7 +1765,7 @@ def extract_reel_motion_clip_urls(output_links: str) -> List[Dict[str, str]]:
             f"Expected 3 reel motion clip URLs, found {len(results)}: {results}"
         )
 
-    return results[:3]
+    return results
 
 
 def download_motion_clip(video_url: str, filename: str) -> str:
