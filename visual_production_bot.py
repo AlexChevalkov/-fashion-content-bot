@@ -2742,22 +2742,62 @@ def create_reel_cover_from_keyframe(
     output_links: str,
     title: str,
     output_filename: str = "reel_cover_v1.png",
+    fields: Dict[str, Any] = None,
 ) -> str:
+    fields = fields or {}
+
     keyframes = extract_reel_keyframe_urls(output_links)
 
     if not keyframes:
         raise RuntimeError("No keyframe URL found for reel cover")
 
-    keyframe_url = keyframes[0]["url"]
+    cover_frame_index_text = safe_get(fields, "Cover Frame Index", "").strip()
+
+    cover_frame_index = None
+
+    if cover_frame_index_text:
+        match = re.search(r"\d+", cover_frame_index_text)
+        if match:
+            cover_frame_index = int(match.group(0))
+
+    # If Cover Frame Index is empty, use first selected frame.
+    if cover_frame_index is None:
+        selected_frame_order_text = safe_get(fields, "Selected Frame Order", "").strip()
+        selected_numbers = re.findall(r"\d+", selected_frame_order_text)
+
+        if selected_numbers:
+            cover_frame_index = int(selected_numbers[0])
+
+    selected_keyframe = None
+
+    if cover_frame_index is not None:
+        for item in keyframes:
+            item_index = str(item.get("index", ""))
+
+            if item_index.isdigit() and int(item_index) == cover_frame_index:
+                selected_keyframe = item
+                break
+
+    if selected_keyframe is None:
+        selected_keyframe = keyframes[0]
+
+    keyframe_url = selected_keyframe["url"]
+
+    print("Reel cover selected keyframe:", selected_keyframe)
 
     response = requests.get(keyframe_url, timeout=120)
 
     if response.status_code != 200:
         raise RuntimeError(f"Could not download keyframe for reel cover: {keyframe_url}")
 
+    cover_title = safe_get(fields, "Reel Cover Title", "").strip()
+
+    if not cover_title:
+        cover_title = title
+
     image = Image.open(BytesIO(response.content)).convert("RGB")
     image = fit_cover_image_to_canvas(image, width=1080, height=1920)
-    image = draw_reel_cover_text(image, title)
+    image = draw_reel_cover_text(image, cover_title)
 
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
@@ -2767,7 +2807,7 @@ def create_reel_cover_from_keyframe(
 
     print("Reel cover created:", output_path)
 
-    return str(output_path)    
+    return str(output_path)
 def generate_final_reel_caption(record: Dict[str, Any]) -> Dict[str, Any]:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -3128,8 +3168,8 @@ def process_reel_sound_record(record: Dict[str, Any]) -> None:
 
         reel_cover_path = create_reel_cover_from_keyframe(
             output_links=existing_links,
-            title=reel_cover_title,
-            output_filename="reel_cover_v1.png",
+            title=title,
+            fields=fields,
         )
 
         output_lines = []
