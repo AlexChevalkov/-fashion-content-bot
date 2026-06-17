@@ -59,6 +59,7 @@ FONT_BOLD = os.environ.get(
 
 # Statuses
 STATUS_QUEUED = "Queued"
+STATUS_BRIEF_READY = "Brief Ready"
 STATUS_RENDERING = "In Production"
 STATUS_NEEDS_REVIEW = "Needs Visual Review"
 STATUS_APPROVED = "Approved Visual"
@@ -3378,6 +3379,9 @@ def process_record(record: Dict[str, Any]) -> None:
     ).strip().lower()
 
     if "reel" in format_value and "carousel" not in format_value:
+        if status_value == STATUS_BRIEF_READY:
+            process_reel_keyframes_record(record)
+            return
         if status_value == STATUS_QUEUED:
             process_reel_brief_record(record)
             return
