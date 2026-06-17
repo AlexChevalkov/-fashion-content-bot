@@ -151,7 +151,6 @@ def build_visual_job_fields(content_record: dict, visual_schema: dict) -> dict:
         "Source Final Caption": final_caption,
         "Source Hook": hook,
         "Source URL": source_url,
-        "Rubric": rubric,
         "Format": format_value,
         "Chosen Format": format_value,
         "Visual Headline": visual_headline,
