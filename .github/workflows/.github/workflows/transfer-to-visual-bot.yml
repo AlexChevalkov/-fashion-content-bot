@@ -1,0 +1,32 @@
+name: Transfer To Visual Bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  transfer-to-visual:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Run transfer to visual bot
+        env:
+          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          AIRTABLE_TABLE_NAME: Content Inbox
+          AIRTABLE_VISUAL_TABLE_NAME: Visual Jobs
+        run: |
+          python transfer_to_visual_bot.py
