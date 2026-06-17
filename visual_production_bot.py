@@ -2445,11 +2445,17 @@ def process_reel_text_overlay_record(record: Dict[str, Any]) -> None:
             overlay_texts=overlay_texts,
             output_filename="final_reel_text_v1.mp4",
         )
-        reel_cover_title = get_reel_cover_title(fields, overlay_texts)
+
+        cover_title = (
+            safe_get(fields, "Reel Cover Title")
+            or safe_get(fields, "Source Post Title")
+            or safe_get(fields, "Job Title")
+            or "SV FASHION MEDIA"
+        )
 
         reel_cover_path = create_reel_cover_from_keyframe(
             output_links=existing_links,
-            title=title,
+            title=cover_title,
             fields=fields,
         )
 
