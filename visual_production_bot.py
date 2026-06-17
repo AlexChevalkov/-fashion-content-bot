@@ -972,6 +972,7 @@ def build_reel_keyframe_prompts(fields: Dict[str, Any]) -> list[Dict[str, str]]:
     visual_hook = safe_get(fields, "Visual Hook")
     visual_concept = safe_get(fields, "Visual Concept")
     reel_hook = safe_get(fields, "Reel Hook")
+    krea_prompt_pack = safe_get(fields, "Krea Prompt Pack")
 
     shared_rules = f"""
 Create ONE single full-screen vertical photograph.
@@ -995,48 +996,133 @@ No multiple moments.
 No multiple scenes inside the same image.
 
 Editorial fashion still life.
-Quiet luxury.
-Cold diffused light.
-Matte textures.
-Stone, plaster, linen, paper, leather.
-Large negative space.
-Premium magazine image.
+Cold editorial light.
+Matte surfaces.
+Clear negative space.
+Premium magazine background feel.
 No text inside the image.
 No letters.
 No logos.
 No people.
 No hands.
 No model.
-No product catalogue feeling.
-No advertising layout.
+No collage.
+No storyboard.
+No moodboard.
+No contact sheet.
 
 Topic: {title}
-Visual idea: {visual_hook}
-Concept: {visual_concept}
+Visual hook: {visual_hook}
+Visual concept: {visual_concept}
 Opening thought: {reel_hook}
 """.strip()
 
+    def normalize_name(label: str, idx: int) -> str:
+        cleaned = []
+        for ch in label.lower():
+            if ch.isalnum():
+                cleaned.append(ch)
+            else:
+                cleaned.append("_")
+        name = "".join(cleaned).strip("_")
+        while "__" in name:
+            name = name.replace("__", "_")
+        return name or f"frame_{idx}"
+
+    def parse_krea_prompt_pack(text: str) -> tuple[str, list[tuple[str, str]]]:
+        if not text.strip():
+            return "", []
+
+        blocks = []
+        current = []
+
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                if current:
+                    blocks.append(" ".join(current).strip())
+                    current = []
+                continue
+            current.append(line)
+
+        if current:
+            blocks.append(" ".join(current).strip())
+
+        style_parts = []
+        scene_parts = []
+
+        for block in blocks:
+            lower = block.lower()
+
+            if lower.startswith("style rules:"):
+                style_parts.append(block[len("style rules:"):].strip())
+                continue
+
+            if lower.startswith("global rules:"):
+                style_parts.append(block[len("global rules:"):].strip())
+                continue
+
+            if ":" in block:
+                label, desc = block.split(":", 1)
+                label = label.strip()
+                desc = desc.strip()
+
+                lower_label = label.lower()
+                if lower_label in {"cover frame", "scene 1", "scene 2", "scene 3", "scene 4", "scene 5", "scene 6", "final frame", "cover", "final"}:
+                    scene_parts.append((label, desc))
+                else:
+                    # if it's not a scene label, treat it as style text
+                    style_parts.append(block)
+            else:
+                style_parts.append(block)
+
+        return " ".join(style_parts).strip(), scene_parts
+
+    style_text, scene_parts = parse_krea_prompt_pack(krea_prompt_pack)
+
+    if scene_parts:
+        prompts = []
+
+        for idx, (label, desc) in enumerate(scene_parts, start=1):
+            prompt = f"""
+{shared_rules}
+
+Additional style rules:
+{style_text}
+
+Frame role: {label}
+
+Scene instruction:
+{desc}
+
+Important:
+- Generate exactly ONE image only.
+- The result must be a single full-frame 9:16 photograph.
+- Do not combine several scenes into one image.
+- Do not create a collage, contact sheet, or storyboard.
+- No repeated variations in one frame.
+- Follow the scene instruction precisely.
+""".strip()
+
+            prompts.append(
+                {
+                    "name": normalize_name(label, idx),
+                    "prompt": prompt,
+                }
+            )
+
+        return prompts
+
+    # Fallback if Krea Prompt Pack is empty
     return [
         {
             "name": "start",
             "prompt": f"""
 {shared_rules}
 
-Make a single vertical editorial photograph of one small beige leather handbag placed far away in a large empty studio space.
-
-The handbag is centered horizontally, low in the frame.
-Most of the image is empty cold grey space.
-Soft background gradient.
-No other objects.
-No fabric.
-No glove.
-No detail shots.
-No second image.
-No panels.
-No collage.
-
-The feeling: distance, silence, desire, control.
-The image must look like one premium fashion magazine still life.
+Create a strong opening frame based on the topic and visual concept.
+Use one clear visual subject only.
+Make it iconic, minimal, editorial, and immediately readable.
 """.strip(),
         },
         {
@@ -1044,24 +1130,9 @@ The image must look like one premium fashion magazine still life.
             "prompt": f"""
 {shared_rules}
 
-Make a single vertical editorial photograph of one close-up detail of the same beige leather handbag.
-
-Only one continuous macro composition:
-a leather edge, a clasp, stitching, or a metal ring.
-The detail occupies the lower third of the image.
-The upper two thirds are clean empty negative space.
-Cold light.
-Sharp leather texture.
-Deep controlled shadow.
-
-No other objects.
-No fabric.
-No glove.
-No multiple details.
-No panels.
-No collage.
-No storyboard.
-No horizontal strips.
+Create a middle frame based on the topic and visual concept.
+Show one symbolic object, material fragment, or coded visual detail.
+Keep strong negative space and a quiet editorial feeling.
 """.strip(),
         },
         {
@@ -1069,23 +1140,10 @@ No horizontal strips.
             "prompt": f"""
 {shared_rules}
 
-Make a single vertical editorial photograph of one beige leather handbag placed almost at the edge of a pale stone surface.
-
-The bag is partly visible, not centered.
-Most of the image is empty stone surface and cold light.
-Very restrained.
-Very quiet.
-Editorial final frame feeling.
-
-One object only.
-One continuous photograph.
-No fabric.
-No glove.
-No multiple shots.
-No panels.
-No collage.
-No storyboard.
-No horizontal strips.
+Create a final frame based on the topic and visual concept.
+The image should feel conclusive, restrained, and memorable.
+One object or one surface only.
+Very clean, very still, very editorial.
 """.strip(),
         },
     ]
