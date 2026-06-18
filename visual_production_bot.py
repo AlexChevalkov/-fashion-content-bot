@@ -2444,21 +2444,16 @@ def draw_reel_cover_text(base: Image.Image, title: str) -> Image.Image:
 
     max_text_width = int(width * 0.78)
     wrapped_lines = wrap_text_lines(draw, title, font, max_text_width)
-
     wrapped_lines = wrapped_lines[:3]
 
     line_spacing = 10
     line_heights = []
 
-    max_line_width = 0
     total_text_height = 0
 
     for line in wrapped_lines:
         bbox = draw.textbbox((0, 0), line, font=font)
-        line_w = bbox[2] - bbox[0]
         line_h = bbox[3] - bbox[1]
-
-        max_line_width = max(max_line_width, line_w)
         line_heights.append(line_h)
         total_text_height += line_h + line_spacing
 
@@ -2466,90 +2461,29 @@ def draw_reel_cover_text(base: Image.Image, title: str) -> Image.Image:
 
     padding_x = 32
     padding_y = 24
+    text_left_padding = 48
 
-    box_x = 70
     box_y = int(height * 0.66)
-
-    box_w = max_line_width + padding_x * 2
     box_h = total_text_height + padding_y * 2
 
     draw.rectangle(
-        [box_x, box_y, box_x + box_w, box_y + box_h],
-        fill=(0, 0, 0, 78),
+        [0, box_y, width, box_y + box_h],
+        fill=(0, 0, 0, 76),
     )
 
     cursor_y = box_y + padding_y
 
     for idx, line in enumerate(wrapped_lines):
         draw.text(
-            (box_x + padding_x, cursor_y),
+            (text_left_padding, cursor_y),
             line,
             font=font,
-            fill=(0, 0, 0, 78),
+            fill=(255, 255, 255, 255),
         )
-
         cursor_y += line_heights[idx] + line_spacing
 
     result = Image.alpha_composite(canvas, overlay).convert("RGB")
-
     return result
-
-
-def draw_reel_cover_text(image: Image.Image, title: str) -> Image.Image:
-    image = image.convert("RGB")
-    draw = ImageDraw.Draw(image, "RGBA")
-
-    width, height = image.size
-
-    brand_name = BRAND_NAME
-    handle = INSTAGRAM_HANDLE
-    title = (title or "").strip().upper()
-
-    # Font paths
-    regular_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf"
-    bold_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"
-
-    brand_font = ImageFont.truetype(regular_font_path, 30)
-    handle_font = ImageFont.truetype(regular_font_path, 26)
-    title_font = ImageFont.truetype(bold_font_path, 62)
-
-    margin_x = 80
-
-    # Subtle dark gradient for readability, not a heavy grey block.
-    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    overlay_draw = ImageDraw.Draw(overlay, "RGBA")
-
-    for y in range(height):
-        if y < int(height * 0.45):
-            alpha = 0
-        else:
-            alpha = int(95 * ((y - height * 0.45) / (height * 0.55)))
-        overlay_draw.line([(0, y), (width, y)], fill=(0, 0, 0, alpha))
-
-    image = Image.alpha_composite(image.convert("RGBA"), overlay)
-    draw = ImageDraw.Draw(image, "RGBA")
-
-    # Brand header
-    draw.text(
-        (margin_x, 70),
-        brand_name,
-        font=brand_font,
-        fill=(255, 255, 255, 235),
-    )
-
-    # Small line under brand
-    draw.rectangle(
-        (margin_x, 125, margin_x + 120, 128),
-        fill=(255, 255, 255, 220),
-    )
-
-    # Handle bottom-left
-    draw.text(
-        (margin_x, height - 105),
-        handle,
-        font=handle_font,
-        fill=(255, 255, 255, 235),
-    )
 
     def wrap_text_by_pixels(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
         words = text.split()
