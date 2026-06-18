@@ -3254,7 +3254,7 @@ def process_record(record: Dict[str, Any]) -> None:
                 is_cover=(slide_num == 1),
             )
 
-        result.save(output_path, format="PNG", quality=95)
+            result.save(output_path, format="PNG", quality=95)
 
             assembled_paths.append(str(output_path))
 
