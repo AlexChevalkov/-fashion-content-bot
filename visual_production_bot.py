@@ -3263,6 +3263,7 @@ def process_record(record: Dict[str, Any]) -> None:
             "Output Links": output_links,
             "Slide Count": slide_count,
             "Slide Copy": format_slide_copy_for_airtable(slide_texts),
+            "Generated Carousel Prompts": "\n\n---\n\n".join(krea_prompts),
             "Render Notes": (
                 f"{brief['render_notes']}\n\n"
                 f"Final assembled carousel saved in GitHub Actions artifact and outputs folder.\n"
