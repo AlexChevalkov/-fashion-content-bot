@@ -3244,8 +3244,7 @@ def process_record(record: Dict[str, Any]) -> None:
             output_path = assembled_dir / f"assembled_slide_{slide_num:02d}.png"
 
             source = Image.open(raw_path)
-            source = fit_image_to_canvas(source)
-
+            source = fit_cover_image_to_canvas(source)
             result = add_text_overlay(
                 source,
                 slide_texts[idx],
