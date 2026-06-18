@@ -450,7 +450,6 @@ def brief_to_airtable_fields(brief: Dict[str, Any]) -> Dict[str, Any]:
         "Carousel Cover": brief["carousel_cover"],
         "Slide Count": brief["slide_count"],
         "Slide Copy": format_slide_copy_for_airtable(brief["slide_texts"]),
-        "Krea Prompt Pack": brief["krea_prompt_pack"],
         "Krea Model Recommendation": "Manual Choice",
         "Render Notes": brief["render_notes"],
         "Visual Status": STATUS_RENDERING,
@@ -801,7 +800,6 @@ Generated at:
             "Reel Script": brief["reel_script"],
             "Shot List": brief["shot_list"],
             "On-screen Text": brief["on_screen_text"],
-            "Krea Prompt Pack": brief["krea_prompt_pack"],
             "Krea Model Recommendation": "Manual Choice",
             "Output Links": output_links,
             "Render Notes": append_note(
