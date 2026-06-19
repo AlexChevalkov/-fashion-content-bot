@@ -489,51 +489,79 @@ def parse_slide_copy_for_generation(
     carousel_cover: str,
     fallback_title: str,
 ) -> List[str]:
-    raw = (slide_copy or "").replace("\r\n", "\n").strip()
-    slides: List[str] = []
+    raw = str(slide_copy or "").replace("\r\n", "\n").strip()
+
+    def clean_text(value: str) -> str:
+        value = str(value or "").strip()
+
+        value = re.sub(r"\s+", " ", value).strip()
+        value = value.strip()
+        value = value.strip("|").strip()
+        value = value.strip("«»\"'“”‘’").strip()
+
+        value = re.sub(
+            r"(?i)^\s*(?:slide|слайд)\s*\d+\s*[:：.)-]\s*",
+            "",
+            value,
+        ).strip()
+
+        value = value.strip("«»\"'“”‘’").strip()
+
+        return value
+
+    slides_by_number: Dict[int, str] = {}
 
     if raw:
-        matches = list(
-            re.finditer(
-                r"(?im)^\s*(?:slide|слайд)\s*(\d+)\s*[:.)-]\s*",
-                raw,
-            )
+        marker_pattern = re.compile(
+            r"(?i)"
+            r"(?:^|\n|\s*\|\s*)"
+            r"(?:slide|слайд)\s*(\d+)\s*[:：.)-]\s*"
         )
 
-        if matches:
-            chunks = []
+        markers = list(marker_pattern.finditer(raw))
 
-            for idx, match in enumerate(matches):
-                number = int(match.group(1))
-                start = match.end()
-                end = matches[idx + 1].start() if idx + 1 < len(matches) else len(raw)
-                text = raw[start:end].strip()
-                text = re.sub(r"\n+", " ", text).strip()
+        if markers:
+            before_first_marker = raw[: markers[0].start()]
+            cover_text = clean_text(before_first_marker)
 
-                if text:
-                    chunks.append((number, text))
+            if cover_text:
+                slides_by_number[1] = cover_text
 
-            chunks.sort(key=lambda item: item[0])
-            slides = [text for _, text in chunks]
+            for idx, marker in enumerate(markers):
+                slide_num = int(marker.group(1))
+                start = marker.end()
+                end = markers[idx + 1].start() if idx + 1 < len(markers) else len(raw)
+
+                slide_text = clean_text(raw[start:end])
+
+                if slide_text:
+                    slides_by_number[slide_num] = slide_text
 
         else:
-            slides = [
-                line.strip()
-                for line in raw.splitlines()
-                if line.strip()
+            parts = [
+                clean_text(part)
+                for part in re.split(r"\n+|\s+\|\s+", raw)
+                if clean_text(part)
             ]
 
-    if not slides and carousel_cover:
-        slides = [carousel_cover]
+            for idx, part in enumerate(parts, start=1):
+                if idx <= slide_count:
+                    slides_by_number[idx] = part
 
-    if not slides:
-        slides = [fallback_title or "EDITORIAL NOTE"]
+    if 1 not in slides_by_number:
+        cover = clean_text(carousel_cover)
 
-    while len(slides) < slide_count:
-        slides.append(slides[-1])
+        if cover:
+            slides_by_number[1] = cover
+        else:
+            slides_by_number[1] = clean_text(fallback_title) or "EDITORIAL NOTE"
+
+    slides: List[str] = []
+
+    for slide_num in range(1, slide_count + 1):
+        slides.append(slides_by_number.get(slide_num, ""))
 
     return slides[:slide_count]
-
 
 def build_carousel_prompts_from_krea_prompt_pack(
     fields: Dict[str, Any],
