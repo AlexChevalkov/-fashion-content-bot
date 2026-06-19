@@ -199,22 +199,22 @@ def generate_visual_brief(job_fields: dict, post_fields: dict) -> dict:
 SV Fashion Media / @sv_fashionacademy
 
 Позиция:
-Не тренды. Контекст моды.
-Архивы, показы, бренды, вкус, индустрия.
-Авторский взгляд Александра Шуррона.
+Не только тренды. Контекст моды и стиля.
+Показы, бренды, знаковые события, вкус, модная индустрия, архивы.
+Авторский взгляд Alexandre Chevalkov.
 
-Задача:
+Задача: 
 Из утверждённого поста сделать визуальное ТЗ для роста аудитории:
 - в первую очередь Reels;
 - во вторую очередь Carousel;
 - визуальный стиль — Hybrid: fashion-media intelligence + art/image-driven visual appeal.
 
-Нужно мыслить как арт-директор, редактор и growth strategist.
+Нужно мыслить как креативный директор, редактор, стилист и growth strategist.
 
 Не делай банальный fashion moodboard.
 Не делай случайную красивость.
-Не делай глянцевый восторг.
-Визуал должен выглядеть как умное fashion media, но достаточно цепко для роста охвата.
+Не делай только глянец имиджи.
+Визуал должен выглядеть как fashion media, но достаточно цепко и ярко для роста охвата.
 
 Пиши по-русски.
 """
@@ -250,6 +250,18 @@ Source URL:
 - Carousel должна давать сохранения: структура, выводы, понятные слайды.
 - Krea Prompt Pack должен быть пригоден для работы в Krea: отдельно image prompts, video prompts, cover prompts, style rules.
 - Krea Prompt Pack должен быть конкретным, но компактным: максимум 3000 знаков.
+- Generated Carousel Prompts должен содержать РОВНО столько отдельных промптов, сколько указано в Slide Count.
+- Каждый prompt = только ОДНА картинка для ОДНОГО слайда.
+- Нельзя писать в одном prompt: Cover image + Slide 2 + Slide 3 + Slide 4.
+- Нельзя включать Reel scenes в Generated Carousel Prompts.
+- Нельзя включать весь Krea Prompt Pack целиком внутрь каждого prompt.
+- Нельзя включать overlay text / caption / русские тексты внутрь image prompt.
+- Каждый prompt должен описывать только визуальную сцену для конкретного слайда.
+- Разделитель между prompt-блоками строго такой:
+
+---
+
+- Внутри каждого prompt можно повторять короткие style rules и negative prompts.
 - Render Notes максимум 1000 знаков.
 - Не пиши длинные референс-листы и длинные объяснения.
 - Не полагайся на точное написание текста внутри AI-изображений. Текст лучше как overlay.
@@ -276,6 +288,7 @@ Source URL:
   "Slide Structure": "структура слайдов 1-7",
   "Slide Copy": "готовый короткий текст для каждого слайда",
   "Krea Prompt Pack": "детальный prompt pack: cover image, carousel images, reel scenes, style rules, negative prompts",
+  "Generated Carousel Prompts": "готовая строка из отдельных image prompts для каждого слайда, разделённых строго через пустая строка + --- + пустая строка",
   "Krea Model Recommendation": "Manual Choice",
   "Render Notes": "практические заметки: что делать в Krea, какие модели выбрать, что потом наложить вручную"
 }}
@@ -315,6 +328,7 @@ Krea Model Recommendation: "Krea Image", "Nano Banana", "Kling", "Runway", "Veo 
         "Slide Structure",
         "Slide Copy",
         "Krea Prompt Pack",
+        "Generated Carousel Prompts",
         "Krea Model Recommendation",
         "Render Notes",
     ]
@@ -350,6 +364,7 @@ def update_visual_job(record_id: str, brief: dict) -> None:
         "Slide Structure": brief.get("Slide Structure", ""),
         "Slide Copy": brief.get("Slide Copy", ""),
         "Krea Prompt Pack": brief.get("Krea Prompt Pack", ""),
+        "Generated Carousel Prompts": brief.get("Generated Carousel Prompts", ""),
         "Krea Model Recommendation": brief.get("Krea Model Recommendation", "Manual Choice"),
         "Render Notes": brief.get("Render Notes", ""),
     }
