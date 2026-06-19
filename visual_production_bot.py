@@ -3178,17 +3178,7 @@ def process_record(record: Dict[str, Any]) -> None:
             process_reel_brief_record(record)
             return
 
-        if status_value == STATUS_APPROVED:
-            process_reel_after_visual_approval(record)
-            return
-
-        if status_value == STATUS_APPROVED_TEXT:
-            process_reel_after_text_approval(record)
-            return
-
-        print(f"Reel record skipped. Status: {status_value}")
-        return
-        if status_value == STATUS_APPROVED:
+    if status_value == STATUS_APPROVED:
         existing_render_notes = safe_get(fields, "Render Notes", "")
 
         ready_note = (
@@ -3212,6 +3202,8 @@ def process_record(record: Dict[str, Any]) -> None:
 
         print("Carousel approved. Moved to Ready for Buffer.")
         return
+
+    if status_value != STATUS_BRIEF_READY:
     if status_value != STATUS_BRIEF_READY:
         print(f"Carousel record skipped. Status: {status_value}")
         return
