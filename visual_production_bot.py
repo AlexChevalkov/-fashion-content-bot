@@ -433,77 +433,6 @@ def format_slide_copy_for_airtable(slide_texts: List[str]) -> str:
         lines.append(f"Slide {idx}: {text}")
     return "\n".join(lines)
     
-def parse_slide_copy_for_generation(
-    slide_copy: str,
-    slide_count: int,
-    carousel_cover: str,
-    fallback_title: str,
-) -> List[str]:
-    raw = (slide_copy or "").replace("\r\n", "\n").strip()
-
-    def clean_text(value: str) -> str:
-        value = (value or "").strip()
-        value = value.strip("|").strip()
-        value = value.strip("«»\"'")
-        value = re.sub(r"\s+", " ", value).strip()
-        return value
-
-    slides_by_number: Dict[int, str] = {}
-
-    if raw:
-        markers = list(
-            re.finditer(
-                r"(?i)(?:^|\|)\s*(?:slide|слайд)\s*(\d+)\s*[:.)-]\s*",
-                raw,
-            )
-        )
-
-        if markers:
-            cover_text = clean_text(raw[: markers[0].start()])
-
-            if cover_text:
-                slides_by_number[1] = cover_text
-
-            for idx, marker in enumerate(markers):
-                slide_num = int(marker.group(1))
-                start = marker.end()
-                end = markers[idx + 1].start() if idx + 1 < len(markers) else len(raw)
-
-                text = clean_text(raw[start:end])
-
-                if text:
-                    slides_by_number[slide_num] = text
-
-        else:
-            parts = [
-                clean_text(part)
-                for part in re.split(r"\n+|\s+\|\s+", raw)
-                if clean_text(part)
-            ]
-
-            for idx, text in enumerate(parts[:slide_count]):
-                slides_by_number[idx + 1] = text
-
-    if 1 not in slides_by_number:
-        cover = clean_text(carousel_cover)
-
-        if cover:
-            slides_by_number[1] = cover
-        else:
-            slides_by_number[1] = clean_text(fallback_title) or "EDITORIAL NOTE"
-
-    slides: List[str] = []
-
-    for slide_num in range(1, slide_count + 1):
-        text = slides_by_number.get(slide_num, "")
-
-        if not text:
-            text = slides[-1] if slides else "EDITORIAL NOTE"
-
-        slides.append(text)
-
-    return slides[:slide_count]
-
 def parse_generated_carousel_prompts(
     fields: Dict[str, Any],
     slide_count: int,
@@ -3532,7 +3461,10 @@ def process_record(record: Dict[str, Any]) -> None:
                     carousel_cover=safe_get(fields, "Carousel Cover"),
                     fallback_title=safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title"),
                 )
-
+                print("Parsed carousel slide texts:")
+                for debug_idx, debug_text in enumerate(slide_texts, start=1):
+                    print(f"Slide {debug_idx} overlay text:", debug_text[:500])
+                
                 raw_dir = OUTPUT_DIR / record_id / "raw"
                 assembled_dir = OUTPUT_DIR / record_id / "assembled"
                 ensure_dir(raw_dir)
