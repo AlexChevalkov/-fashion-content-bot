@@ -3188,7 +3188,30 @@ def process_record(record: Dict[str, Any]) -> None:
 
         print(f"Reel record skipped. Status: {status_value}")
         return
+        if status_value == STATUS_APPROVED:
+        existing_render_notes = safe_get(fields, "Render Notes", "")
 
+        ready_note = (
+            f"Carousel approved by visual review.\n"
+            f"Status moved to Ready for Buffer.\n"
+            f"Approved at: {now_iso()}"
+        )
+
+        if existing_render_notes.strip():
+            render_notes = existing_render_notes.strip() + "\n\n---\n\n" + ready_note
+        else:
+            render_notes = ready_note
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_READY_FOR_BUFFER,
+                "Render Notes": render_notes,
+            },
+        )
+
+        print("Carousel approved. Moved to Ready for Buffer.")
+        return
     if status_value != STATUS_BRIEF_READY:
         print(f"Carousel record skipped. Status: {status_value}")
         return
