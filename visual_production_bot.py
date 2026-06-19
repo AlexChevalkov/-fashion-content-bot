@@ -485,6 +485,84 @@ def parse_slide_copy_for_generation(
     return slides[:slide_count]
 
 
+def parse_generated_carousel_prompts(
+    fields: Dict[str, Any],
+    slide_count: int,
+) -> List[str]:
+    raw = safe_get(fields, "Generated Carousel Prompts").strip()
+
+    if not raw:
+        raise RuntimeError(
+            "Generated Carousel Prompts is empty. "
+            "Production Bot must use separate slide prompts, not Krea Prompt Pack."
+        )
+
+    parts = [
+        part.strip()
+        for part in re.split(r"\n\s*---\s*\n", raw)
+        if part.strip()
+    ]
+
+    if len(parts) != slide_count:
+        raise RuntimeError(
+            f"Generated Carousel Prompts count mismatch: "
+            f"got {len(parts)}, expected {slide_count}."
+        )
+
+    return parts
+    
+def parse_slide_copy_for_generation(
+    slide_copy: str,
+    slide_count: int,
+    carousel_cover: str,
+    fallback_title: str,
+) -> List[str]:
+    raw = (slide_copy or "").replace("\r\n", "\n").strip()
+    slides: List[str] = []
+
+    if raw:
+        matches = list(
+            re.finditer(
+                r"(?im)^\s*(?:slide|слайд)\s*(\d+)\s*[:.)-]\s*",
+                raw,
+            )
+        )
+
+        if matches:
+            chunks = []
+
+            for idx, match in enumerate(matches):
+                number = int(match.group(1))
+                start = match.end()
+                end = matches[idx + 1].start() if idx + 1 < len(matches) else len(raw)
+                text = raw[start:end].strip()
+                text = re.sub(r"\n+", " ", text).strip()
+
+                if text:
+                    chunks.append((number, text))
+
+            chunks.sort(key=lambda item: item[0])
+            slides = [text for _, text in chunks]
+
+        else:
+            slides = [
+                line.strip()
+                for line in raw.splitlines()
+                if line.strip()
+            ]
+
+    if not slides and carousel_cover:
+        slides = [carousel_cover]
+
+    if not slides:
+        slides = [fallback_title or "EDITORIAL NOTE"]
+
+    while len(slides) < slide_count:
+        slides.append(slides[-1])
+
+    return slides[:slide_count]
+
+
 def build_carousel_prompts_from_krea_prompt_pack(
     fields: Dict[str, Any],
     slide_texts: List[str],
@@ -3313,6 +3391,7 @@ def process_record(record: Dict[str, Any]) -> None:
         safe_get(fields, "Format") or safe_get(fields, "Chosen Format")
     ).strip().lower()
 
+    # REEL PIPELINE
     if "reel" in format_value and "carousel" not in format_value:
         if status_value == STATUS_BRIEF_READY:
             process_reel_keyframes_record(record)
@@ -3333,14 +3412,11 @@ def process_record(record: Dict[str, Any]) -> None:
         print(f"Reel record skipped. Status: {status_value}")
         return
 
-    output_links_existing = safe_get(fields, "Output Links", "")
-
+    # CAROUSEL APPROVAL AFTER GENERATION
     if status_value == STATUS_APPROVED:
-        if (
-            "Assembled local files:" in output_links_existing
-            or "Krea raw images:" in output_links_existing
-            or "assembled_slide_" in output_links_existing
-        ):
+        existing_output_links = safe_get(fields, "Output Links", "")
+
+        if existing_output_links.strip():
             existing_render_notes = safe_get(fields, "Render Notes", "")
 
             ready_note = (
@@ -3365,9 +3441,11 @@ def process_record(record: Dict[str, Any]) -> None:
             print("Carousel approved. Moved to Ready for Buffer.")
             return
 
-        print("Approved Visual but carousel was not generated yet. Generating now.")
+        print("Carousel Approved Visual, but Output Links is empty. Generating carousel first.")
+        status_value = STATUS_BRIEF_READY
 
-    elif status_value != STATUS_BRIEF_READY:
+    # CAROUSEL GENERATION
+    if status_value != STATUS_BRIEF_READY:
         print(f"Carousel record skipped. Status: {status_value}")
         return
 
@@ -3388,9 +3466,8 @@ def process_record(record: Dict[str, Any]) -> None:
             fallback_title=safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title"),
         )
 
-        krea_prompts = build_carousel_prompts_from_krea_prompt_pack(
+        krea_prompts = parse_generated_carousel_prompts(
             fields=fields,
-            slide_texts=slide_texts,
             slide_count=slide_count,
         )
 
@@ -3465,7 +3542,6 @@ def process_record(record: Dict[str, Any]) -> None:
             "Visual Status": STATUS_NEEDS_REVIEW,
             "Output Links": output_links,
             "Slide Count": slide_count,
-            "Generated Carousel Prompts": "\n\n---\n\n".join(krea_prompts),
             "Render Notes": render_notes,
         }
 
