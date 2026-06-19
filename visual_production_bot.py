@@ -440,50 +440,69 @@ def parse_slide_copy_for_generation(
     fallback_title: str,
 ) -> List[str]:
     raw = (slide_copy or "").replace("\r\n", "\n").strip()
-    slides: List[str] = []
+
+    def clean_text(value: str) -> str:
+        value = (value or "").strip()
+        value = value.strip("|").strip()
+        value = value.strip("«»\"'")
+        value = re.sub(r"\s+", " ", value).strip()
+        return value
+
+    slides_by_number: Dict[int, str] = {}
 
     if raw:
-        matches = list(
+        markers = list(
             re.finditer(
-                r"(?im)^\s*(?:slide|слайд)\s*(\d+)\s*[:.)-]\s*",
+                r"(?i)(?:^|\|)\s*(?:slide|слайд)\s*(\d+)\s*[:.)-]\s*",
                 raw,
             )
         )
 
-        if matches:
-            chunks = []
+        if markers:
+            cover_text = clean_text(raw[: markers[0].start()])
 
-            for idx, match in enumerate(matches):
-                number = int(match.group(1))
-                start = match.end()
-                end = matches[idx + 1].start() if idx + 1 < len(matches) else len(raw)
-                text = raw[start:end].strip()
-                text = re.sub(r"\n+", " ", text).strip()
+            if cover_text:
+                slides_by_number[1] = cover_text
+
+            for idx, marker in enumerate(markers):
+                slide_num = int(marker.group(1))
+                start = marker.end()
+                end = markers[idx + 1].start() if idx + 1 < len(markers) else len(raw)
+
+                text = clean_text(raw[start:end])
 
                 if text:
-                    chunks.append((number, text))
-
-            chunks.sort(key=lambda item: item[0])
-            slides = [text for _, text in chunks]
+                    slides_by_number[slide_num] = text
 
         else:
-            slides = [
-                line.strip()
-                for line in raw.splitlines()
-                if line.strip()
+            parts = [
+                clean_text(part)
+                for part in re.split(r"\n+|\s+\|\s+", raw)
+                if clean_text(part)
             ]
 
-    if not slides and carousel_cover:
-        slides = [carousel_cover]
+            for idx, text in enumerate(parts[:slide_count]):
+                slides_by_number[idx + 1] = text
 
-    if not slides:
-        slides = [fallback_title or "EDITORIAL NOTE"]
+    if 1 not in slides_by_number:
+        cover = clean_text(carousel_cover)
 
-    while len(slides) < slide_count:
-        slides.append(slides[-1])
+        if cover:
+            slides_by_number[1] = cover
+        else:
+            slides_by_number[1] = clean_text(fallback_title) or "EDITORIAL NOTE"
+
+    slides: List[str] = []
+
+    for slide_num in range(1, slide_count + 1):
+        text = slides_by_number.get(slide_num, "")
+
+        if not text:
+            text = slides[-1] if slides else "EDITORIAL NOTE"
+
+        slides.append(text)
 
     return slides[:slide_count]
-
 
 def parse_generated_carousel_prompts(
     fields: Dict[str, Any],
