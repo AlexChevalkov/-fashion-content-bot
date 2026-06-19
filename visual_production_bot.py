@@ -3204,7 +3204,6 @@ def process_record(record: Dict[str, Any]) -> None:
         return
 
     if status_value != STATUS_BRIEF_READY:
-    if status_value != STATUS_BRIEF_READY:
         print(f"Carousel record skipped. Status: {status_value}")
         return
 
