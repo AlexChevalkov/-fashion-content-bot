@@ -3173,6 +3173,7 @@ def process_record(record: Dict[str, Any]) -> None:
         if status_value == STATUS_BRIEF_READY:
             process_reel_keyframes_record(record)
             return
+
         if status_value == STATUS_QUEUED:
             process_reel_brief_record(record)
             return
@@ -3187,22 +3188,34 @@ def process_record(record: Dict[str, Any]) -> None:
 
         print(f"Reel record skipped. Status: {status_value}")
         return
-            
-            
+
+    if status_value != STATUS_BRIEF_READY:
+        print(f"Carousel record skipped. Status: {status_value}")
+        return
+
     try:
-        # 1. Brief
-        update_airtable_record(record_id, {"Visual Status": STATUS_RENDERING})
-        brief = generate_visual_brief(record)
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_RENDERING,
+            },
+        )
 
-        brief_fields = brief_to_airtable_fields(brief)
-        brief_fields["Visual Status"] = STATUS_RENDERING
-        update_airtable_record(record_id, brief_fields)
+        slide_count = clamp_slide_count(safe_get(fields, "Slide Count", "6"))
 
-        slide_count = clamp_slide_count(brief["slide_count"])
-        slide_texts = brief["slide_texts"]
-        krea_prompts = brief["krea_prompts"]
+        slide_texts = parse_slide_copy_for_generation(
+            slide_copy=safe_get(fields, "Slide Copy"),
+            slide_count=slide_count,
+            carousel_cover=safe_get(fields, "Carousel Cover"),
+            fallback_title=safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title"),
+        )
 
-        # 2. Krea render
+        krea_prompts = build_carousel_prompts_from_krea_prompt_pack(
+            fields=fields,
+            slide_texts=slide_texts,
+            slide_count=slide_count,
+        )
+
         raw_dir = OUTPUT_DIR / record_id / "raw"
         assembled_dir = OUTPUT_DIR / record_id / "assembled"
         ensure_dir(raw_dir)
@@ -3222,6 +3235,7 @@ def process_record(record: Dict[str, Any]) -> None:
                 prompt=prompt,
                 aspect_ratio=KREA_ASPECT_RATIO,
             )
+
             url = poll_krea_job(job_id)
 
             raw_path = raw_dir / f"slide_{slide_num:02d}_raw.png"
@@ -3235,7 +3249,6 @@ def process_record(record: Dict[str, Any]) -> None:
                 }
             )
 
-        # 3. Assembly
         for idx in range(slide_count):
             slide_num = idx + 1
             raw_path = raw_dir / f"slide_{slide_num:02d}_raw.png"
@@ -3243,6 +3256,7 @@ def process_record(record: Dict[str, Any]) -> None:
 
             source = Image.open(raw_path)
             source = fit_cover_image_to_canvas(source)
+
             result = add_text_overlay(
                 source,
                 slide_texts[idx],
@@ -3255,20 +3269,26 @@ def process_record(record: Dict[str, Any]) -> None:
 
             assembled_paths.append(str(output_path))
 
-        # 4. Save result in Airtable
         output_links = build_output_links_text(raw_items, assembled_paths)
+
+        existing_render_notes = safe_get(fields, "Render Notes")
+
+        production_note = (
+            f"Final assembled carousel saved in GitHub Actions artifact and outputs folder.\n"
+            f"Generated at: {now_iso()}"
+        )
+
+        if existing_render_notes.strip():
+            render_notes = existing_render_notes.strip() + "\n\n---\n\n" + production_note
+        else:
+            render_notes = production_note
 
         final_fields = {
             "Visual Status": STATUS_NEEDS_REVIEW,
             "Output Links": output_links,
             "Slide Count": slide_count,
-            "Slide Copy": format_slide_copy_for_airtable(slide_texts),
             "Generated Carousel Prompts": "\n\n---\n\n".join(krea_prompts),
-            "Render Notes": (
-                f"{brief['render_notes']}\n\n"
-                f"Final assembled carousel saved in GitHub Actions artifact and outputs folder.\n"
-                f"Generated at: {now_iso()}"
-            ),
+            "Render Notes": render_notes,
         }
 
         update_airtable_record(record_id, final_fields)
