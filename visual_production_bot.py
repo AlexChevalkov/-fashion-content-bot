@@ -510,6 +510,30 @@ def parse_generated_carousel_prompts(
         )
 
     return parts
+
+def extract_krea_raw_items_from_output_links(output_links: str) -> List[Dict[str, str]]:
+    items: List[Dict[str, str]] = []
+
+    raw = output_links or ""
+
+    matches = re.finditer(
+        r"Slide\s+(\d+):\s*(https?://[^\s|]+)(?:\s*\|\s*job_id:\s*([A-Za-z0-9-]+))?",
+        raw,
+        re.IGNORECASE,
+    )
+
+    for match in matches:
+        items.append(
+            {
+                "slide": match.group(1),
+                "url": match.group(2),
+                "job_id": match.group(3) or "",
+            }
+        )
+
+    items.sort(key=lambda item: int(item["slide"]))
+
+    return items    
     
 def parse_slide_copy_for_generation(
     slide_copy: str,
@@ -3438,39 +3462,132 @@ def process_record(record: Dict[str, Any]) -> None:
         print(f"Reel record skipped. Status: {status_value}")
         return
 
-    # CAROUSEL APPROVAL AFTER GENERATION
+    # CAROUSEL FINAL APPROVAL
+    if status_value == STATUS_APPROVED_TEXT:
+        existing_render_notes = safe_get(fields, "Render Notes", "")
+
+        ready_note = (
+            f"Carousel text approved.\n"
+            f"Status moved to Ready for Buffer.\n"
+            f"Approved at: {now_iso()}"
+        )
+
+        if existing_render_notes.strip():
+            render_notes = existing_render_notes.strip() + "\n\n---\n\n" + ready_note
+        else:
+            render_notes = ready_note
+
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_READY_FOR_BUFFER,
+                "Render Notes": render_notes,
+            },
+        )
+
+        print("Carousel text approved. Moved to Ready for Buffer.")
+        return
+
+    # CAROUSEL TEXT OVERLAY AFTER VISUAL APPROVAL
     if status_value == STATUS_APPROVED:
-        existing_output_links = safe_get(fields, "Output Links", "")
+        output_links_existing = safe_get(fields, "Output Links", "")
+        raw_items = extract_krea_raw_items_from_output_links(output_links_existing)
 
-        if existing_output_links.strip():
-            existing_render_notes = safe_get(fields, "Render Notes", "")
+        if not raw_items:
+            print("Carousel Approved Visual, but no Krea raw image links found. Generating raw images first.")
+            status_value = STATUS_BRIEF_READY
+        else:
+            try:
+                update_airtable_record(
+                    record_id,
+                    {
+                        "Visual Status": STATUS_RENDERING,
+                    },
+                )
 
-            ready_note = (
-                f"Carousel approved by visual review.\n"
-                f"Status moved to Ready for Buffer.\n"
-                f"Approved at: {now_iso()}"
-            )
+                slide_count = len(raw_items)
 
-            if existing_render_notes.strip():
-                render_notes = existing_render_notes.strip() + "\n\n---\n\n" + ready_note
-            else:
-                render_notes = ready_note
+                slide_texts = parse_slide_copy_for_generation(
+                    slide_copy=safe_get(fields, "Slide Copy"),
+                    slide_count=slide_count,
+                    carousel_cover=safe_get(fields, "Carousel Cover"),
+                    fallback_title=safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title"),
+                )
 
-            update_airtable_record(
-                record_id,
-                {
-                    "Visual Status": STATUS_READY_FOR_BUFFER,
-                    "Render Notes": render_notes,
-                },
-            )
+                raw_dir = OUTPUT_DIR / record_id / "raw"
+                assembled_dir = OUTPUT_DIR / record_id / "assembled"
+                ensure_dir(raw_dir)
+                ensure_dir(assembled_dir)
 
-            print("Carousel approved. Moved to Ready for Buffer.")
-            return
+                assembled_paths: List[str] = []
 
-        print("Carousel Approved Visual, but Output Links is empty. Generating carousel first.")
-        status_value = STATUS_BRIEF_READY
+                for idx, item in enumerate(raw_items):
+                    slide_num = idx + 1
+                    raw_url = item["url"]
 
-    # CAROUSEL GENERATION
+                    print(f"Assembling overlay slide {slide_num}/{slide_count}")
+                    print("Raw image URL:", raw_url)
+
+                    raw_path = raw_dir / f"slide_{slide_num:02d}_raw.png"
+                    output_path = assembled_dir / f"assembled_slide_{slide_num:02d}.png"
+
+                    download_image(raw_url, raw_path)
+
+                    source = Image.open(raw_path)
+                    source = fit_cover_image_to_canvas(source)
+
+                    result = add_text_overlay(
+                        source,
+                        slide_texts[idx],
+                        slide_num,
+                        slide_count,
+                        is_cover=(slide_num == 1),
+                    )
+
+                    result.save(output_path, format="PNG", quality=95)
+
+                    assembled_paths.append(str(output_path))
+
+                output_links = build_output_links_text(raw_items, assembled_paths)
+
+                existing_render_notes = safe_get(fields, "Render Notes", "")
+
+                production_note = (
+                    f"Carousel overlay text assembled.\n"
+                    f"Generated at: {now_iso()}"
+                )
+
+                if existing_render_notes.strip():
+                    render_notes = existing_render_notes.strip() + "\n\n---\n\n" + production_note
+                else:
+                    render_notes = production_note
+
+                update_airtable_record(
+                    record_id,
+                    {
+                        "Visual Status": STATUS_NEEDS_TEXT_REVIEW,
+                        "Output Links": output_links,
+                        "Render Notes": render_notes,
+                    },
+                )
+
+                print("Carousel overlays assembled. Moved to Needs Text Review.")
+                return
+
+            except Exception as error:
+                print("ERROR while assembling carousel overlays:", error)
+
+                update_airtable_record(
+                    record_id,
+                    {
+                        "Visual Status": STATUS_ERROR,
+                        "Render Notes": f"Error at {now_iso()}:\n{str(error)}",
+                    },
+                )
+
+                raise
+
+    # CAROUSEL RAW IMAGE GENERATION
     if status_value != STATUS_BRIEF_READY:
         print(f"Carousel record skipped. Status: {status_value}")
         return
@@ -3485,31 +3602,21 @@ def process_record(record: Dict[str, Any]) -> None:
 
         slide_count = clamp_slide_count(safe_get(fields, "Slide Count", "6"))
 
-        slide_texts = parse_slide_copy_for_generation(
-            slide_copy=safe_get(fields, "Slide Copy"),
-            slide_count=slide_count,
-            carousel_cover=safe_get(fields, "Carousel Cover"),
-            fallback_title=safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title"),
-        )
-
         krea_prompts = parse_generated_carousel_prompts(
             fields=fields,
             slide_count=slide_count,
         )
 
         raw_dir = OUTPUT_DIR / record_id / "raw"
-        assembled_dir = OUTPUT_DIR / record_id / "assembled"
         ensure_dir(raw_dir)
-        ensure_dir(assembled_dir)
 
         raw_items: List[Dict[str, str]] = []
-        assembled_paths: List[str] = []
 
         for idx in range(slide_count):
             slide_num = idx + 1
             prompt = krea_prompts[idx]
 
-            print(f"Rendering slide {slide_num}/{slide_count}")
+            print(f"Rendering raw slide {slide_num}/{slide_count}")
             print("Prompt:", prompt)
 
             job_id = create_krea_image_job(
@@ -3530,32 +3637,12 @@ def process_record(record: Dict[str, Any]) -> None:
                 }
             )
 
-        for idx in range(slide_count):
-            slide_num = idx + 1
-            raw_path = raw_dir / f"slide_{slide_num:02d}_raw.png"
-            output_path = assembled_dir / f"assembled_slide_{slide_num:02d}.png"
+        output_links = build_output_links_text(raw_items, [])
 
-            source = Image.open(raw_path)
-            source = fit_cover_image_to_canvas(source)
-
-            result = add_text_overlay(
-                source,
-                slide_texts[idx],
-                slide_num,
-                slide_count,
-                is_cover=(slide_num == 1),
-            )
-
-            result.save(output_path, format="PNG", quality=95)
-
-            assembled_paths.append(str(output_path))
-
-        output_links = build_output_links_text(raw_items, assembled_paths)
-
-        existing_render_notes = safe_get(fields, "Render Notes")
+        existing_render_notes = safe_get(fields, "Render Notes", "")
 
         production_note = (
-            f"Final assembled carousel saved in GitHub Actions artifact and outputs folder.\n"
+            f"Raw carousel images generated.\n"
             f"Generated at: {now_iso()}"
         )
 
@@ -3564,20 +3651,17 @@ def process_record(record: Dict[str, Any]) -> None:
         else:
             render_notes = production_note
 
-        final_fields = {
-            "Visual Status": STATUS_NEEDS_REVIEW,
-            "Output Links": output_links,
-            "Slide Count": slide_count,
-            "Render Notes": render_notes,
-        }
+        update_airtable_record(
+            record_id,
+            {
+                "Visual Status": STATUS_NEEDS_REVIEW,
+                "Output Links": output_links,
+                "Slide Count": slide_count,
+                "Render Notes": render_notes,
+            },
+        )
 
-        update_airtable_record(record_id, final_fields)
-
-        print(f"Done: {record_id}")
-        print("Assembled files:")
-
-        for path in assembled_paths:
-            print(path)
+        print("Raw carousel images generated. Moved to Needs Visual Review.")
 
     except Exception as error:
         print("ERROR while processing record:", error)
