@@ -118,6 +118,17 @@ def shorten(text: str, limit: int = 600) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
+def append_note(existing_notes: str, new_note: str) -> str:
+    existing = (existing_notes or "").strip()
+    note = (new_note or "").strip()
+
+    if existing and note:
+        return existing + "\n\n---\n\n" + note
+
+    if note:
+        return note
+
+    return existing
 
 
 # =========================================================
