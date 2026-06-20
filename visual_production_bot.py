@@ -1149,11 +1149,11 @@ Opening thought: {reel_hook}
             name = name.replace("__", "_")
         return name or f"frame_{idx}"
 
-        def parse_krea_prompt_pack(text: str) -> tuple[str, list[tuple[str, str]]]:
+    def parse_krea_prompt_pack(text: str) -> tuple[str, list[tuple[str, str]]]:
         raw = (text or "").strip()
 
         if not raw:
-            return "", []
+        return "", []
 
         cleaned = raw.replace("\r\n", "\n")
         cleaned = cleaned.replace("|", "\n")
