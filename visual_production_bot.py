@@ -286,10 +286,10 @@ def generate_visual_brief(record: Dict[str, Any]) -> Dict[str, Any]:
 Ты — Visual Editor и Creative Director для {BRAND_NAME}.
 
 Контекст бренда:
-- Умное fashion-медиа
+- Умное, но не скучное fashion-медиа
 - Не глянец ради глянца, а editorial intelligence
-- Минимализм, дистанция, ощущение premium
-- Визуал должен ощущаться как fashion editorial, not stock
+- Умеренный минимализм, дистанция, ощущение premium
+- Визуал должен ощущаться как luxury fashion editorial, not stock
 
 Твоя задача:
 1. Создать visual brief для одного поста
@@ -297,8 +297,8 @@ def generate_visual_brief(record: Dict[str, Any]) -> Dict[str, Any]:
 3. Дать Krea-ready prompts для каждого слайда
 
 ЖЁСТКИЕ ПРАВИЛА:
-- Для карусели всегда выбирай от 5 до 7 слайдов
-- Делай не механические 7, а столько, сколько действительно нужно по смыслу
+- Для карусели всегда выбирай от 5 до 9 слайдов
+- Делай не механические 9, а столько, сколько действительно нужно по смыслу
 - Слайд 1 — cover
 - Последний слайд — чёткий editorial takeaway / финальная мысль
 - Каждый слайд должен содержать КОРОТКИЙ текст
@@ -1111,30 +1111,21 @@ This is not a moodboard.
 This is not a contact sheet.
 This is not a collage.
 This is not a sequence.
-This is not a set of images.
 
 The entire 9:16 canvas must be one continuous photographic image from top to bottom.
 One camera angle only.
 One composition only.
-One visual subject only.
-No horizontal strips.
 No panels.
 No grid.
 No split screen.
-No multiple moments.
 No multiple scenes inside the same image.
 
-Editorial fashion still life.
+Editorial fashion image.
 Cold editorial light.
 Matte surfaces.
 Clear negative space.
 Premium magazine background feel.
 No text inside the image.
-No letters.
-No logos.
-No people.
-No hands.
-No model.
 No collage.
 No storyboard.
 No moodboard.
@@ -1518,22 +1509,18 @@ The provided image is the locked visual reference.
 Do not redesign it.
 Do not reinterpret it.
 Do not change the object.
-Do not change the composition.
 Do not change the material.
 Do not change the shape.
-Do not add new objects.
 
 The video must preserve:
-- the exact handbag / object identity
+- the exact object identity
 - the same silhouette
-- the same leather texture
-- the same stitching
-- the same metal hardware
+- the same texture
 - the same color palette
 - the same background
 - the same negative space
 - the same lighting mood
-- the same editorial still-life atmosphere
+- the same fashion editorial atmosphere
 
 Allowed movement only:
 - extremely slow camera push-in
@@ -1541,19 +1528,13 @@ Allowed movement only:
 - barely visible breathing in the light
 - slight atmospheric depth
 - tiny shadow movement
-- almost still image
 
 Forbidden:
 - no morphing
 - no transformation
 - no object deformation
 - no new fabric
-- no extra folds
 - no additional accessories
-- no new handbag parts
-- no people
-- no hands
-- no model
 - no logo
 - no text
 - no letters
@@ -1561,14 +1542,10 @@ Forbidden:
 - no montage
 - no fast movement
 - no TikTok style
-- no commercial advertising energy
-- no product demo feeling
 - no zoom jump
-- no camera shake
-- no fantasy effect
 
 The video should feel like:
-a moving fashion magazine still life,
+a moving fashion magazine image,
 quiet luxury,
 editorial intelligence,
 distance,
