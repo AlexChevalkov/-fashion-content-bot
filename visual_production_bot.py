@@ -1153,7 +1153,7 @@ Opening thought: {reel_hook}
         raw = (text or "").strip()
 
         if not raw:
-        return "", []
+            return "", []
 
         cleaned = raw.replace("\r\n", "\n")
         cleaned = cleaned.replace("|", "\n")
