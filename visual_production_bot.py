@@ -2724,7 +2724,7 @@ def draw_reel_cover_text(base: Image.Image, title: str) -> Image.Image:
     width, height = canvas.size
 
     title = title.upper()
-    font = get_font(FONT_SEMIBOLD, 64)
+    font = get_font(FONT_BOLD, 64)
 
     max_text_width = int(width * 0.78)
     wrapped_lines = wrap_text_lines(draw, title, font, max_text_width)
@@ -3363,9 +3363,9 @@ def process_reel_after_visual_approval(record: Dict[str, Any]) -> None:
             current_record = fetch_airtable_record(record_id)
             output_links = safe_get(current_record.get("fields", {}), "Output Links", "")
 
-        process_reel_text_overlay_record(current_record)
+            process_reel_text_overlay_record(current_record)
 
-        update_airtable_record(
+            update_airtable_record(
             record_id,
             {
                 "Visual Status": STATUS_NEEDS_TEXT_REVIEW,
