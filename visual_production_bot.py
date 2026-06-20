@@ -3447,11 +3447,21 @@ def process_record(record: Dict[str, Any]) -> None:
     status_value = safe_get(fields, "Visual Status", "").strip()
 
     format_value = (
-        safe_get(fields, "Format") or safe_get(fields, "Chosen Format")
+    safe_get(fields, "Format") or safe_get(fields, "Chosen Format")
     ).strip().lower()
 
+    output_links_value = safe_get(fields, "Output Links", "")
+
+    is_reel_job = (
+        "reel" in format_value
+        or "Reel keyframes generated" in output_links_value
+        or "Reel motion clips generated" in output_links_value
+        or "Final reel assembled" in output_links_value
+        or "Final reel with text generated" in output_links_value
+    )
+
     # REEL PIPELINE
-    if "reel" in format_value and "carousel" not in format_value:
+    if is_reel_job:
         if status_value == STATUS_BRIEF_READY:
             process_reel_keyframes_record(record)
             return
