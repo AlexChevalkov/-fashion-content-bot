@@ -250,6 +250,18 @@ Source URL:
 - Carousel должна давать сохранения: структура, выводы, понятные слайды.
 - Krea Prompt Pack должен быть пригоден для работы в Krea: отдельно image prompts, video prompts, cover prompts, style rules.
 - Krea Prompt Pack должен быть конкретным, но компактным: максимум 3000 знаков.
+- Reel Keyframe Prompts — обязательное поле, если Chosen Format содержит Reel.
+- Reel Keyframe Prompts должен содержать РОВНО 3 prompt-блока.
+- Каждый keyframe prompt = одна неподвижная вертикальная 9:16 fashion editorial картинка.
+- Keyframe 1 = hook / opening frame.
+- Keyframe 2 = conflict / core visual argument.
+- Keyframe 3 = final / conclusion frame.
+- В Reel Keyframe Prompts запрещены слова и логика: montage, fast cut, sequence, storyboard, split-screen, slow pan, zoom-in, transition, motion, video.
+- Если нужна идея split-screen, перепиши её как один still: comparative flat lay, two objects side by side, controlled editorial composition.
+- Если нужна идея montage, перепиши её как один still: arranged textile details in one controlled composition.
+- Reel Motion Prompts — отдельное поле для motion/video-сцен. Там можно использовать pan, zoom, transition, rhythm edit.
+- Selected Keyframe Scenes должен быть строкой из трёх номеров, например: 1,3,6.
+- Нельзя использовать Krea Prompt Pack как источник готовых keyframes. Krea Prompt Pack — только общий human-readable summary.
 - Generated Carousel Prompts должен содержать РОВНО столько отдельных промптов, сколько указано в Slide Count.
 - Каждый prompt = только ОДНА картинка для ОДНОГО слайда.
 - Нельзя писать в одном prompt: Cover image + Slide 2 + Slide 3 + Slide 4.
@@ -288,6 +300,9 @@ Source URL:
   "Slide Structure": "структура слайдов 1-7",
   "Slide Copy": "готовый короткий текст для каждого слайда",
   "Krea Prompt Pack": "детальный prompt pack: cover image, carousel images, reel scenes, style rules, negative prompts",
+  "Reel Keyframe Prompts": "ровно 3 отдельных still image prompts для keyframes рилса: hook frame, conflict frame, final frame. Каждый prompt описывает одну неподвижную 9:16 картинку, без motion language, без montage, без split-screen, без storyboard. Разделитель между prompt-блоками строго: пустая строка + --- + пустая строка",
+  "Reel Motion Prompts": "отдельные video prompts для motion-сцен рилса. Здесь можно использовать slow zoom, pan, transition, rhythm edit. Разделитель между сценами строго: пустая строка + --- + пустая строка",
+  "Selected Keyframe Scenes": "три номера сцен для keyframes, например: 1,3,6",
   "Generated Carousel Prompts": "готовая строка из отдельных image prompts для каждого слайда, разделённых строго через пустая строка + --- + пустая строка",
   "Krea Model Recommendation": "Manual Choice",
   "Render Notes": "практические заметки: что делать в Krea, какие модели выбрать, что потом наложить вручную"
@@ -328,6 +343,9 @@ Krea Model Recommendation: "Krea Image", "Nano Banana", "Kling", "Runway", "Veo 
         "Slide Structure",
         "Slide Copy",
         "Krea Prompt Pack",
+        "Reel Keyframe Prompts",
+        "Reel Motion Prompts",
+        "Selected Keyframe Scenes",
         "Generated Carousel Prompts",
         "Krea Model Recommendation",
         "Render Notes",
@@ -364,6 +382,9 @@ def update_visual_job(record_id: str, brief: dict) -> None:
         "Slide Structure": brief.get("Slide Structure", ""),
         "Slide Copy": brief.get("Slide Copy", ""),
         "Krea Prompt Pack": brief.get("Krea Prompt Pack", ""),
+        "Reel Keyframe Prompts": brief.get("Reel Keyframe Prompts", ""),
+        "Reel Motion Prompts": brief.get("Reel Motion Prompts", ""),
+        "Selected Keyframe Scenes": brief.get("Selected Keyframe Scenes", "1,3,6"),
         "Generated Carousel Prompts": brief.get("Generated Carousel Prompts", ""),
         "Krea Model Recommendation": brief.get("Krea Model Recommendation", "Manual Choice"),
         "Render Notes": brief.get("Render Notes", ""),
