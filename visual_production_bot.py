@@ -1434,7 +1434,32 @@ def apply_selected_frame_order(
     print("Selected keyframes:", [item["index"] for item in selected])
 
     return selected
+def parse_reel_motion_prompt_blocks(
+    fields: Dict[str, Any],
+    expected_count: int,
+) -> list[str]:
+    raw = safe_get(fields, "Reel Motion Prompts", "").strip()
 
+    if not raw:
+        raise RuntimeError(
+            "Reel Motion Prompts is empty. "
+            "Production Bot must use controlled motion prompts, not generic motion logic."
+        )
+
+    parts = [
+        part.strip()
+        for part in re.split(r"\n\s*---\s*\n", raw)
+        if part.strip()
+    ]
+
+    if len(parts) < expected_count:
+        raise RuntimeError(
+            f"Reel Motion Prompts has too few blocks. "
+            f"Got {len(parts)}, expected at least {expected_count}."
+        )
+
+    return parts[:expected_count]
+    
 def build_reel_motion_prompt(fields: Dict[str, Any]) -> str:
     title = safe_get(fields, "Source Post Title") or safe_get(fields, "Job Title")
     reel_hook = safe_get(fields, "Reel Hook")
@@ -1643,13 +1668,22 @@ def process_reel_motion_record(record: Dict[str, Any]) -> None:
         )
 
         keyframes = extract_reel_keyframe_urls(existing_links)
+
         selected_frame_order_text = safe_get(fields, "Selected Frame Order", "")
         keyframes = apply_selected_frame_order(
-        keyframes,
-        selected_frame_order_text,
+            keyframes,
+            selected_frame_order_text,
+        )
+
+        motion_prompt_blocks = parse_reel_motion_prompt_blocks(
+            fields=fields,
+            expected_count=len(keyframes),
         )
 
         base_prompt = build_reel_motion_prompt(fields)
+
+        print("Using Reel Motion Prompts as source of truth.")
+        print("Motion prompt block count:", len(motion_prompt_blocks))
 
         results = []
 
@@ -1658,13 +1692,25 @@ def process_reel_motion_record(record: Dict[str, Any]) -> None:
             name = item["name"]
             start_image_url = item["url"]
 
+                        motion_instruction = motion_prompt_blocks[len(results)]
+
             prompt = f"""
 {base_prompt}
 
+Controlled motion instruction:
+{motion_instruction}
+
 This motion clip is based on keyframe {index}: {name}.
-Create only this one short segment.
-Preserve this exact source image.
-Do not introduce visual elements from other keyframes.
+
+Hard rules:
+- Preserve this exact source image.
+- Do not redesign the image.
+- Do not change the object.
+- Do not introduce visual elements from other keyframes.
+- Do not add text.
+- Do not add logos.
+- Do not add new symbols.
+- Keep movement minimal, editorial, slow, controlled.
 """.strip()
 
             print("=" * 80)
