@@ -1270,7 +1270,7 @@ def process_reel_keyframes_record(record: Dict[str, Any]) -> None:
                 }
             )
 
-                output_lines = []
+            output_lines = []
 
         output_lines.append("Reel keyframes generated:")
 
