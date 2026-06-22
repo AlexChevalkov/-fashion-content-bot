@@ -2532,15 +2532,15 @@ def process_reel_text_overlay_record(record: Dict[str, Any]) -> None:
 
         overlay_texts = collect_overlay_texts(fields)
 
-if len(overlay_texts) > expected_overlay_count:
-    overlay_texts = overlay_texts[:expected_overlay_count]
+        if len(overlay_texts) > expected_overlay_count:
+            overlay_texts = overlay_texts[:expected_overlay_count]
 
-if len(overlay_texts) < expected_overlay_count:
-    raise RuntimeError(
-        f"Not enough overlay texts. Got {len(overlay_texts)}, expected {expected_overlay_count}."
-    )
+        if len(overlay_texts) < expected_overlay_count:
+            raise RuntimeError(
+                f"Not enough overlay texts. Got {len(overlay_texts)}, expected {expected_overlay_count}."
+            )
 
-print("Overlay texts:")
+        print("Overlay texts:")
         for idx, text in enumerate(overlay_texts, start=1):
             print(f"{idx}: {text}")
 
