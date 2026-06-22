@@ -2530,9 +2530,17 @@ def process_reel_text_overlay_record(record: Dict[str, Any]) -> None:
 
         expected_overlay_count = len(local_clip_paths)
 
-        overlay_texts = collect_overlay_texts(fields)
+overlay_texts = collect_overlay_texts(fields)
 
-        print("Overlay texts:")
+if len(overlay_texts) > expected_overlay_count:
+    overlay_texts = overlay_texts[:expected_overlay_count]
+
+if len(overlay_texts) < expected_overlay_count:
+    raise RuntimeError(
+        f"Not enough overlay texts. Got {len(overlay_texts)}, expected {expected_overlay_count}."
+    )
+
+print("Overlay texts:")
         for idx, text in enumerate(overlay_texts, start=1):
             print(f"{idx}: {text}")
 
@@ -2668,8 +2676,7 @@ def draw_reel_cover_text(base: Image.Image, title: str) -> Image.Image:
 
     max_text_width = int(width * 0.78)
     wrapped_lines = wrap_text_lines(draw, title, font, max_text_width)
-    wrapped_lines = wrapped_lines[:3]
-
+    wrapped_lines = wrapped_lines[:4]
     line_spacing = 10
     line_heights = []
 
