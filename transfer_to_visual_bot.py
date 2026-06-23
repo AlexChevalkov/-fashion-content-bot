@@ -99,19 +99,15 @@ def fetch_approved_content_posts() -> list[dict]:
 def visual_job_already_exists(content_record_id: str, title: str) -> bool:
     url = airtable_table_url(VISUAL_TABLE_NAME)
 
-    title_safe = title.replace("'", "\\'")
-    formula = (
-        f"OR("
-        f"{{Source Content ID}} = '{content_record_id}', "
-        f"{{Source Post Title}} = '{title_safe}'"
-        f")"
-    )
+    # Check by record ID only — safe against formula injection.
+    # Title check is done client-side below as a secondary guard.
+    formula = f"{{Source Content ID}} = '{content_record_id}'"
 
     response = requests.get(
         url,
         headers=airtable_headers(),
         params={
-            "pageSize": 1,
+            "pageSize": 5,
             "filterByFormula": formula,
         },
         timeout=30,
@@ -122,7 +118,34 @@ def visual_job_already_exists(content_record_id: str, title: str) -> bool:
         print(response.status_code, response.text[:700])
         return False
 
-    return bool(response.json().get("records", []))
+    records = response.json().get("records", [])
+
+    if records:
+        return True
+
+    # Secondary client-side check by normalised title.
+    target = normalize_title(title)
+
+    title_check_url = airtable_table_url(VISUAL_TABLE_NAME)
+    title_response = requests.get(
+        title_check_url,
+        headers=airtable_headers(),
+        params={
+            "pageSize": 20,
+            "fields[]": "Source Post Title",
+        },
+        timeout=30,
+    )
+
+    if title_response.status_code != 200:
+        return False
+
+    for record in title_response.json().get("records", []):
+        existing_title = record.get("fields", {}).get("Source Post Title", "")
+        if normalize_title(existing_title) == target:
+            return True
+
+    return False
 
 
 def build_visual_job_fields(content_record: dict, visual_schema: dict) -> dict:
