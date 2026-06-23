@@ -123,11 +123,19 @@ def fetch_queued_visual_job() -> dict | None:
     return records[0]
 
 
-def fetch_content_posts() -> list[dict]:
+def find_matching_post(source_post_title: str) -> dict:
+    if not source_post_title:
+        return {}
+
     url = airtable_table_url(CONTENT_TABLE_NAME)
 
+    # Escape single quotes for Airtable formula (title is user content, not record ID).
+    title_safe = source_post_title.replace("\\", "\\\\").replace("'", "\\'")
+    formula = f"{{Title}} = '{title_safe}'"
+
     params = [
-        ("pageSize", "100"),
+        ("pageSize", "1"),
+        ("filterByFormula", formula),
         ("fields[]", "Title"),
         ("fields[]", "HOOK"),
         ("fields[]", "Visual Headline"),
@@ -144,28 +152,19 @@ def fetch_content_posts() -> list[dict]:
         timeout=30,
     )
 
-    print("Read Content Inbox status:", response.status_code)
+    print("Find matching post status:", response.status_code)
 
     if response.status_code != 200:
-        print("Content Inbox read failed, fallback to Visual Job only.")
+        print("Content Inbox lookup failed, fallback to Visual Job only.")
         print(response.text[:700])
-        return []
+        return {}
 
-    return response.json().get("records", [])
+    records = response.json().get("records", [])
 
-
-def find_matching_post(source_post_title: str) -> dict:
-    posts = fetch_content_posts()
-
-    target = normalize_title(source_post_title)
-
-    for record in posts:
-        fields = record.get("fields", {})
-        title = fields.get("Title", "")
-
-        if normalize_title(title) == target:
-            print("Matched Content Inbox post:", title)
-            return fields
+    if records:
+        fields = records[0].get("fields", {})
+        print("Matched Content Inbox post:", fields.get("Title", ""))
+        return fields
 
     print("No exact Content Inbox match. Using Visual Job data only.")
     return {}
