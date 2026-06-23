@@ -2715,72 +2715,6 @@ def draw_reel_cover_text(base: Image.Image, title: str) -> Image.Image:
 
     result = Image.alpha_composite(canvas, overlay).convert("RGB")
     return result
-
-    def wrap_text_by_pixels(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
-        words = text.split()
-        lines = []
-        current = ""
-
-        for word in words:
-            test = word if not current else current + " " + word
-            bbox = draw.textbbox((0, 0), test, font=font)
-            test_width = bbox[2] - bbox[0]
-
-            if test_width <= max_width:
-                current = test
-            else:
-                if current:
-                    lines.append(current)
-                current = word
-
-        if current:
-            lines.append(current)
-
-        return lines
-
-    max_text_width = width - margin_x * 2
-    title_lines = wrap_text_by_pixels(title, title_font, max_text_width)
-
-    # Limit cover text to 3 lines.
-    title_lines = title_lines[:3]
-
-    line_height = 72
-    text_block_height = len(title_lines) * line_height
-
-    # Position: lower third, but with air.
-    text_x = margin_x
-    text_y = int(height * 0.66)
-
-    # Very restrained black plaque, not grey.
-    plaque_padding_x = 28
-    plaque_padding_y = 22
-
-    max_line_width = 0
-    for line in title_lines:
-        bbox = draw.textbbox((0, 0), line, font=title_font)
-        max_line_width = max(max_line_width, bbox[2] - bbox[0])
-
-    plaque = (
-        text_x - plaque_padding_x,
-        text_y - plaque_padding_y,
-        text_x + max_line_width + plaque_padding_x,
-        text_y + text_block_height + plaque_padding_y,
-    )
-
-    draw.rectangle(
-        plaque,
-        fill=(0, 0, 0, 82),
-    )
-
-    for idx, line in enumerate(title_lines):
-        draw.text(
-            (text_x, text_y + idx * line_height),
-            line,
-            font=title_font,
-            fill=(255, 255, 255, 255),
-        )
-
-    return image.convert("RGB")
 def create_reel_cover_from_keyframe(
     output_links: str,
     title: str,
@@ -2859,12 +2793,12 @@ def generate_final_reel_caption(record: Dict[str, Any]) -> Dict[str, Any]:
     source_title = safe_get(fields, "Source Post Title")
     reel_hook = safe_get(fields, "Reel Hook")
     reel_script = safe_get(fields, "Reel Script")
-    overlay_1 = safe_get(fields, "Overlay 1")
-    overlay_2 = safe_get(fields, "Overlay 2")
-    overlay_3 = safe_get(fields, "Overlay 3")
-    overlay_4 = safe_get(fields, "Overlay 4")
-    overlay_5 = safe_get(fields, "Overlay 5")
     visual_concept = safe_get(fields, "Visual Concept")
+
+    overlay_texts = collect_overlay_texts(fields)
+    overlay_lines = "\n".join(
+        f"{idx}. {text}" for idx, text in enumerate(overlay_texts, start=1)
+    )
 
     system_prompt = f"""
 Ты — fashion editor и автор Instagram caption для {BRAND_NAME}.
@@ -2900,11 +2834,7 @@ Reel script:
 {reel_script}
 
 On-screen text:
-1. {overlay_1}
-2. {overlay_2}
-3. {overlay_3}
-4. {overlay_4}
-5. {overlay_5}
+{overlay_lines}
 
 
 Верни строго валидный JSON без markdown.
